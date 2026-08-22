@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PortWatch — Surface Scanner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="10" cy="10" r="8" stroke="#38BDF8" stroke-width="1.5"/>
+            <circle cx="10" cy="10" r="4" stroke="#38BDF8" stroke-width="1.5"/>
+            <circle cx="10" cy="10" r="1.5" fill="#38BDF8"/>
+            <line x1="10" y1="2" x2="10" y2="0" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="10" y1="20" x2="10" y2="18" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="2" y1="10" x2="0" y2="10" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="20" y1="10" x2="18" y2="10" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="logo-name">PortWatch</span>
+        <span class="logo-tag">surface scanner</span>
+      </div>
+      <div class="header-meta">
+        <span class="disclaimer-badge">⚠ Authorised targets only</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+
+    <!-- SCAN INPUT -->
+    <section class="scan-section">
+      <div class="scan-input-wrapper" id="scanWrapper">
+        <div class="scan-input-ring" id="scanRing"></div>
+        <div class="scan-bar">
+          <label for="targetInput" class="scan-label">TARGET</label>
+          <input
+            type="text"
+            id="targetInput"
+            class="scan-input"
+            placeholder="example.com or 192.168.1.1"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button class="scan-btn" id="scanBtn" onclick="startScan()">
+            <span class="scan-btn-text">Scan</span>
+            <svg class="scan-btn-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <p class="scan-hint">Runs Nmap with NSE vulnerability scripts — may take 60–300 seconds</p>
+      </div>
+
+      <!-- SCANNING STATE -->
+      <div class="scanning-state hidden" id="scanningState">
+        <div class="pulse-ring">
+          <div class="pulse-core"></div>
+        </div>
+        <div class="scanning-text">
+          <span class="scanning-label" id="scanningLabel">Scanning</span>
+          <span class="scanning-target" id="scanningTarget"></span>
+        </div>
+        <p class="scanning-sub">Running Nmap with NSE scripts — please wait</p>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="results-section hidden" id="resultsSection">
+
+      <!-- RESULT HEADER -->
+      <div class="result-header">
+        <div class="result-title-row">
+          <h2 class="result-target" id="resultTarget"></h2>
+          <span class="result-ts" id="resultTs"></span>
+        </div>
+        <div class="result-risk-strip" id="resultRiskStrip">
+          <!-- populated by JS -->
+        </div>
+      </div>
+
+      <!-- RISK SUMMARY -->
+      <div class="card" id="summaryCard">
+        <div class="card-header">
+          <span class="card-eyebrow">Risk Summary</span>
+        </div>
+        <div class="card-body">
+          <p class="summary-text" id="summaryText"></p>
+        </div>
+      </div>
+
+      <!-- OPEN PORTS -->
+      <div class="card" id="portsCard">
+        <div class="card-header">
+          <span class="card-eyebrow">Open Ports</span>
+          <span class="card-count" id="portCount"></span>
+        </div>
+        <div class="card-body no-pad">
+          <table class="ports-table" id="portsTable">
+            <thead>
+              <tr>
+                <th>Port</th>
+                <th>State</th>
+                <th>Service</th>
+                <th>Version</th>
+                <th>Risk</th>
+              </tr>
+            </thead>
+            <tbody id="portsBody">
+              <!-- populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SSL / HTTP FINDINGS -->
+      <div class="findings-grid">
+
+        <div class="card" id="sslCard">
+          <div class="card-header">
+            <span class="card-eyebrow">SSL / TLS</span>
+          </div>
+          <div class="card-body">
+            <div class="finding-list" id="sslFindings">
+              <p class="finding-empty">No SSL data in this scan.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="httpCard">
+          <div class="card-header">
+            <span class="card-eyebrow">HTTP Headers</span>
+          </div>
+          <div class="card-body">
+            <div class="finding-list" id="httpFindings">
+              <p class="finding-empty">No HTTP header data in this scan.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RAW NSE OUTPUT -->
+      <div class="card collapsible" id="rawCard">
+        <div class="card-header card-header--toggle" onclick="toggleRaw()">
+          <span class="card-eyebrow">Raw NSE Output</span>
+          <span class="toggle-icon" id="rawToggleIcon">▸ expand</span>
+        </div>
+        <div class="card-body hidden" id="rawBody">
+          <pre class="raw-output" id="rawOutput"></pre>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- HISTORY -->
+    <section class="history-section" id="historySection">
+      <div class="history-header">
+        <h3 class="history-title">Scan History</h3>
+        <span class="history-count" id="historyCount"></span>
+      </div>
+
+      <div id="historyEmpty" class="history-empty hidden">
+        <p>No scans yet. Run your first scan above.</p>
+      </div>
+
+      <div class="history-table-wrap">
+        <table class="history-table" id="historyTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Target</th>
+              <th>Scanned</th>
+              <th>Summary</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <!-- populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ERROR TOAST -->
+  <div class="toast hidden" id="errorToast">
+    <span class="toast-icon">✕</span>
+    <span class="toast-msg" id="toastMsg"></span>
+  </div>
+
+  <!-- LEGAL FOOTER -->
+  <footer class="site-footer">
+    <p>PortWatch is a penetration testing tool. Only scan systems you own or have <strong>explicit written permission</strong> to test. Unauthorised scanning is illegal.</p>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
