@@ -55,13 +55,18 @@ def run_scan(target):
 
     scanner.scan(
         target,
-        arguments=f"-sV -T4 --top-ports 100 --script {NSE_SCRIPTS}",
+        arguments=f"-sV -T4 --top-ports 100 --script {NSE_SCRIPTS} --host-timeout 120s",
     )
 
     ports_out = []
 
-    if target in scanner.all_hosts():
-        host_data = scanner[target]
+    # Nmap resolves hostnames to IPs internally, so scanner.all_hosts() may
+    # return the IP address even if 'target' was typed in as a hostname.
+    # Use whichever host nmap actually reports rather than requiring an
+    # exact string match against the original input.
+    scanned_hosts = scanner.all_hosts()
+    if scanned_hosts:
+        host_data = scanner[scanned_hosts[0]]
         for proto in host_data.all_protocols():
             for port in sorted(host_data[proto].keys()):
                 info = host_data[proto][port]
