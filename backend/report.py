@@ -33,6 +33,64 @@ def _grade_color(letter):
     }.get(letter, "#334155")
 
 
+_VERDICT_LABEL = {
+    "none_observed": ("No rate limiting observed", "#DC2626"),
+    "throttled": ("Throttling in place", "#15803D"),
+    "lockout": ("Lockout protection", "#15803D"),
+    "captcha": ("CAPTCHA protection", "#15803D"),
+}
+
+
+def _credential_checks_section(record):
+    cc = record.get("credential_checks")
+    if cc is None:
+        return """
+        <section>
+          <h2>Credential &amp; Lockout Checks</h2>
+          <p class="empty">Not performed for this scan.</p>
+        </section>"""
+
+    rows = []
+    for f in cc.get("http_login_findings") or []:
+        label, color = _VERDICT_LABEL.get(f.get("verdict"), (f.get("verdict"), "#334155"))
+        rows.append(
+            f"<tr><td>{_esc(f.get('url'))}</td>"
+            f"<td><span class='risk' style='background:{color}1a;color:{color};'>{_esc(label)}</span></td>"
+            f"<td>{_esc(f.get('detail'))}</td></tr>"
+        )
+    for d in cc.get("db_findings") or []:
+        color = "#DC2626" if d.get("vulnerable") else "#15803D"
+        label = "Vulnerable" if d.get("vulnerable") else "No issue found"
+        rows.append(
+            f"<tr><td>Port {_esc(d.get('port'))}</td>"
+            f"<td><span class='risk' style='background:{color}1a;color:{color};'>{_esc(label)}</span></td>"
+            f"<td>{_esc(d.get('check'))}: {_esc(d.get('detail'))}</td></tr>"
+        )
+
+    if not rows:
+        body = ("<p class='empty'>Checks were enabled but no login endpoints or "
+                "credential-protected services were found to test.</p>")
+    else:
+        note = ""
+        if any(r.get("verdict") == "none_observed" for r in cc.get("http_login_findings") or []):
+            note = ("<p class='meta' style='margin-top:8px;'>Verdicts reflect a small number of "
+                    "controlled failed attempts; they indicate observed behaviour, not a guarantee "
+                    "about sustained attack scenarios.</p>")
+        body = f"""
+        <table>
+          <thead><tr><th>Endpoint</th><th>Verdict</th><th>Detail</th></tr></thead>
+          <tbody>{''.join(rows)}</tbody>
+        </table>{note}"""
+    if cc.get("error"):
+        body += f"<p class='empty'>Partial failure: {_esc(cc['error'])}</p>"
+
+    return f"""
+    <section>
+      <h2>Credential &amp; Lockout Checks</h2>
+      {body}
+    </section>"""
+
+
 def build_report_html(record):
     risk = record.get("risk") or {}
     score = risk.get("score")
@@ -68,6 +126,8 @@ def build_report_html(record):
           <h2>Framework Mapping — OWASP Top 10 (2021)</h2>
           <ul class="compliance">{items}</ul>
         </section>"""
+
+    credential_html = _credential_checks_section(record)
 
     port_rows = ""
     if open_ports:
@@ -185,6 +245,8 @@ def build_report_html(record):
     </section>
 
     {compliance_html}
+
+    {credential_html}
 
     <section>
       <h2>Open Ports &amp; Services</h2>

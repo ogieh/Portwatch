@@ -1,6 +1,8 @@
 import shutil
 import nmap
 
+import authtest
+
 RISK_NOTES = {
     21: "high",
     22: "medium",
@@ -30,6 +32,26 @@ NSE_SCRIPTS = ",".join([
 # Ports worth spending extra time running SSL/HTTP-specific NSE scripts on.
 # Extend this if you want scripts to also run against 3300/5510/8443 etc.
 WEB_PORTS_FOR_SCRIPTS = {80, 443, 8080, 8443}
+
+# Safe, read-only info scripts for open database/service ports. These run
+# automatically (standard/deep profiles) -- they never submit credentials.
+DB_SAFE_SCRIPTS = {
+    1433: "ms-sql-info",
+    3306: "mysql-info",
+    5900: "vnc-info",
+    6379: "redis-info",
+    27017: "mongodb-info",
+}
+
+# Credential-checking scripts. These attempt real logins and can lock
+# accounts out -- only ever run when the user explicitly opted in.
+DB_CRED_SCRIPTS = {
+    1433: "ms-sql-brute,ms-sql-empty-password",
+    3306: "mysql-brute,mysql-empty-password",
+    5432: "pgsql-brute",
+    27017: "mongodb-brute",
+}
+DB_PORTS_FOR_SCRIPTS = set(DB_SAFE_SCRIPTS) | set(DB_CRED_SCRIPTS)
 
 # ---- Scan profiles ----
 # "standard" is byte-for-byte the original scan behaviour (the hard-won
@@ -71,7 +93,7 @@ def _check_nmap_available():
         )
 
 
-def run_scan(target, profile=DEFAULT_PROFILE):
+def run_scan(target, profile=DEFAULT_PROFILE, credential_checks=False):
     """
     Two-phase scan:
       Phase 1 (always runs, fast, reliable): -sV -Pn --top-ports N
@@ -90,6 +112,7 @@ def run_scan(target, profile=DEFAULT_PROFILE):
     {
       "target": str,
       "profile": str,
+      "credential_checks": {...} | None,
       "ports": [
         {"port": int, "state": str, "service": str, "version": str,
          "risk": "high"|"medium"|"low", "scripts": {...}},
@@ -130,6 +153,7 @@ def run_scan(target, profile=DEFAULT_PROFILE):
 
     ports_out = []
     open_web_ports = []
+    open_db_ports = []
 
     for proto in host_data.all_protocols():
         for port in sorted(host_data[proto].keys()):
@@ -150,6 +174,8 @@ def run_scan(target, profile=DEFAULT_PROFILE):
 
             if state == "open" and port in WEB_PORTS_FOR_SCRIPTS:
                 open_web_ports.append(port)
+            if state == "open" and port in DB_PORTS_FOR_SCRIPTS:
+                open_db_ports.append(port)
 
     # ---- Phase 2: best-effort NSE scripts on open web ports only ----
     if profile_cfg["scripts_enabled"] and open_web_ports:
@@ -163,30 +189,81 @@ def run_scan(target, profile=DEFAULT_PROFILE):
                     f"--host-timeout {profile_cfg['phase2_host_timeout']}"
                 ),
             )
-            if resolved_host in script_scanner.all_hosts():
-                script_host_data = script_scanner[resolved_host]
-                for proto in script_host_data.all_protocols():
-                    for port in script_host_data[proto].keys():
-                        info = script_host_data[proto][port]
-                        script_output = info.get("script", {})
-                        if script_output:
-                            for p_entry in ports_out:
-                                if p_entry["port"] == port:
-                                    p_entry["scripts"] = script_output
+            _merge_script_results(script_scanner, resolved_host, ports_out)
         except Exception:
             # Scripts are a bonus, not a requirement -- if this phase fails
             # for any reason, we keep the solid phase 1 port results as-is.
             pass
+
+    # ---- Phase 2b: database/service scripts on open DB ports ----
+    # Safe read-only info scripts run automatically with the other scripts;
+    # credential-checking scripts only run when explicitly opted in.
+    if profile_cfg["scripts_enabled"] and open_db_ports:
+        db_script_list = sorted({
+            s
+            for p in open_db_ports
+            for s in (
+                ([DB_SAFE_SCRIPTS[p]] if p in DB_SAFE_SCRIPTS else []) +
+                ([DB_CRED_SCRIPTS[p]] if credential_checks and p in DB_CRED_SCRIPTS else [])
+            )
+        })
+        try:
+            db_scanner = nmap.PortScanner()
+            db_scanner.scan(
+                target,
+                arguments=(
+                    f"-sV -Pn -p {','.join(map(str, open_db_ports))} "
+                    f"--script {','.join(db_script_list)} "
+                    f"--host-timeout {profile_cfg['phase2_host_timeout']}"
+                ),
+            )
+            _merge_script_results(db_scanner, resolved_host, ports_out)
+        except Exception:
+            pass
+
+    # ---- Phase 3 (opt-in): login rate-limit / lockout probing ----
+    credential_result = None
+    if credential_checks:
+        try:
+            credential_result = authtest.run_credential_checks(resolved_host, ports_out)
+        except Exception as e:
+            credential_result = {
+                "enabled": True,
+                "http_login_findings": [],
+                "db_findings": [],
+                "error": f"Credential checks failed: {e}",
+            }
 
     summary = generate_summary(target, ports_out)
 
     return {
         "target": target,
         "profile": profile,
+        "credential_checks": credential_result,
         "resolved_host": resolved_host,
         "ports": ports_out,
         "summary": summary,
     }
+
+
+def _merge_script_results(nmap_scanner, resolved_host, ports_out):
+    """Copy any NSE script output from a best-effort pass into the main
+    port list. Never overwrites existing output; never raises upward."""
+    try:
+        if resolved_host not in nmap_scanner.all_hosts():
+            return
+        host_data = nmap_scanner[resolved_host]
+        for proto in host_data.all_protocols():
+            for port in host_data[proto].keys():
+                info = host_data[proto][port]
+                script_output = info.get("script", {})
+                if not script_output:
+                    continue
+                for p_entry in ports_out:
+                    if p_entry["port"] == port and not p_entry["scripts"]:
+                        p_entry["scripts"] = script_output
+    except Exception:
+        pass
 
 
 def generate_summary(target, ports):

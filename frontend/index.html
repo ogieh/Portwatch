@@ -63,6 +63,13 @@
             </svg>
           </button>
         </div>
+        <div class="scan-options">
+          <label class="opt-toggle" title="Attempts a few deliberately failed logins to detect throttling/lockout protection, plus DB default-credential scripts. Can lock out accounts — authorised targets only.">
+            <input type="checkbox" id="credToggle" />
+            <span class="opt-box"></span>
+            <span class="opt-label">Credential &amp; lockout checks</span>
+          </label>
+        </div>
         <p class="scan-hint" id="scanHint">Top 100 ports with NSE web scripts — may take 60–300 seconds</p>
       </div>
 
@@ -155,6 +162,17 @@
           </div>
         </div>
 
+      </div>
+
+      <!-- CREDENTIAL & LOCKOUT CHECKS -->
+      <div class="card hidden" id="credCard">
+        <div class="card-header">
+          <span class="card-eyebrow">Credential &amp; Lockout Checks</span>
+          <span class="card-count" id="credCount"></span>
+        </div>
+        <div class="card-body">
+          <div class="finding-list" id="credFindings"></div>
+        </div>
       </div>
 
       <!-- FRAMEWORK MAPPING -->

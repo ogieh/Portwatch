@@ -31,6 +31,11 @@ MISSING_HEADER_CAP = 12
 DANGEROUS_METHOD_PENALTY = 6  # per port allowing PUT/DELETE/TRACE/CONNECT
 DANGEROUS_METHOD_CAP = 12
 
+LOGIN_NO_THROTTLE_PENALTY = 12  # per login endpoint with no observed rate limit
+LOGIN_NO_THROTTLE_CAP = 24
+DB_AUTH_PENALTY = 20            # per DB auth failure (empty password / cracked creds)
+DB_AUTH_CAP = 40
+
 GRADE_BANDS = [
     (90, "A"),
     (75, "B"),
@@ -65,10 +70,11 @@ def _script_output(port, name):
     return out if isinstance(out, str) else ""
 
 
-def compute_risk(ports):
+def compute_risk(ports, credential_checks=None):
     """
     Returns {"score": int 0-100, "grade": str, "breakdown": [...]}
     where breakdown lists every deduction so the score is auditable.
+    credential_checks is the opt-in findings dict from authtest (optional).
     """
     breakdown = []
     open_ports = [p for p in ports if p.get("state") == "open"]
@@ -139,6 +145,23 @@ def compute_risk(ports):
     total_deducted += add_capped(
         f"{method_ports} port(s) with dangerous HTTP methods",
         method_ports * DANGEROUS_METHOD_PENALTY, DANGEROUS_METHOD_CAP)
+
+    # ---- Opt-in credential & lockout check deductions (A07 territory) ----
+    cc = credential_checks or {}
+    unprotected = [
+        f for f in cc.get("http_login_findings", [])
+        if f.get("verdict") == "none_observed"
+    ]
+    db_auth_failures = [
+        d for d in cc.get("db_findings", []) if d.get("vulnerable")
+    ]
+
+    total_deducted += add_capped(
+        f"{len(unprotected)} login endpoint(s) with no observed rate limiting",
+        len(unprotected) * LOGIN_NO_THROTTLE_PENALTY, LOGIN_NO_THROTTLE_CAP)
+    total_deducted += add_capped(
+        f"{len(db_auth_failures)} database auth failure(s)",
+        len(db_auth_failures) * DB_AUTH_PENALTY, DB_AUTH_CAP)
 
     score = max(0, min(100, 100 - total_deducted))
 

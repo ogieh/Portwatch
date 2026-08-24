@@ -10,6 +10,7 @@ Categories currently covered:
     A02:2021  Cryptographic Failures
     A05:2021  Security Misconfiguration
     A06:2021  Vulnerable and Outdated Components
+    A07:2021  Identification and Authentication Failures
 """
 
 import re
@@ -34,6 +35,7 @@ CATEGORIES = {
     "A02:2021": {"name": "Cryptographic Failures"},
     "A05:2021": {"name": "Security Misconfiguration"},
     "A06:2021": {"name": "Vulnerable and Outdated Components"},
+    "A07:2021": {"name": "Identification and Authentication Failures"},
 }
 
 
@@ -42,12 +44,13 @@ def _script_output(port, name):
     return out if isinstance(out, str) else ""
 
 
-def generate_compliance_tags(ports):
+def generate_compliance_tags(ports, credential_checks=None):
     """
     Returns a list of:
         {"category": "A05:2021", "name": "Security Misconfiguration",
          "evidence": ["..."]}
     sorted by category id. Empty list when nothing maps.
+    credential_checks is the opt-in findings dict (optional).
     """
     evidence = {cat: [] for cat in CATEGORIES}
 
@@ -95,6 +98,19 @@ def generate_compliance_tags(ports):
             service = p.get("service", "unknown")
             evidence["A05:2021"].append(
                 f"Port {port_num} ({service}) exposed to the network"
+            )
+
+    cc = credential_checks or {}
+    for f in cc.get("http_login_findings", []):
+        if f.get("verdict") == "none_observed":
+            evidence["A07:2021"].append(
+                f"No rate limiting observed on login endpoint {f.get('url')} "
+                f"after {f.get('attempts', '?')} failed attempts"
+            )
+    for d in cc.get("db_findings", []):
+        if d.get("vulnerable"):
+            evidence["A07:2021"].append(
+                f"Port {d.get('port')}: {d.get('check')} — {d.get('detail')}"
             )
 
     tags = []

@@ -253,6 +253,77 @@ body {
   font-family: var(--mono);
 }
 
+/* ── SCAN OPTIONS (credential checks toggle) ── */
+.scan-options {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.opt-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.opt-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+
+.opt-box {
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--transition), background var(--transition);
+  flex-shrink: 0;
+}
+
+.opt-box::after {
+  content: '✓';
+  font-size: 11px;
+  font-weight: 700;
+  color: #0B1120;
+  opacity: 0;
+}
+
+.opt-toggle input:checked + .opt-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.opt-toggle input:checked + .opt-box::after { opacity: 1; }
+
+.opt-toggle:hover .opt-box { border-color: var(--accent); }
+.opt-toggle input:disabled + .opt-box { opacity: 0.45; cursor: not-allowed; }
+
+.opt-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+/* ── VERDICT CHIPS (credential checks) ── */
+.verdict-chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 99px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+.verdict-chip.verdict-bad { color: var(--high); background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.35); }
+.verdict-chip.verdict-ok  { color: var(--low);  background: rgba(34,197,94,0.12);  border: 1px solid rgba(34,197,94,0.3); }
+
 /* ── SCANNING STATE ── */
 .scanning-state {
   display: flex;

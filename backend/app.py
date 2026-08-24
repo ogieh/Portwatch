@@ -19,6 +19,7 @@ def scan():
     data = request.get_json(silent=True) or {}
     target = data.get("target", "").strip()
     profile = data.get("profile") or DEFAULT_PROFILE
+    credential_checks = bool(data.get("credential_checks"))
 
     if not target:
         return jsonify({"error": "Target is required"}), 400
@@ -30,15 +31,16 @@ def scan():
         }), 400
 
     try:
-        scan_result = run_scan(target, profile)
+        scan_result = run_scan(target, profile, credential_checks)
     except Exception as e:
         # Nmap failures (bad target, nmap not installed, permission issues, etc.)
         return jsonify({"error": f"Scan failed: {str(e)}"}), 500
 
     # Scored and tagged at save time so history never silently re-grades
     # itself if the formula changes later.
-    scan_result["risk"] = compute_risk(scan_result["ports"])
-    scan_result["compliance"] = generate_compliance_tags(scan_result["ports"])
+    cc = scan_result.get("credential_checks")
+    scan_result["risk"] = compute_risk(scan_result["ports"], cc)
+    scan_result["compliance"] = generate_compliance_tags(scan_result["ports"], cc)
 
     saved = save_scan(scan_result)
     return jsonify(saved)

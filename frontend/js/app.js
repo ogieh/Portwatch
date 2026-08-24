@@ -12,6 +12,7 @@ const scanBtn        = document.getElementById('scanBtn');
 const scanWrapper    = document.getElementById('scanWrapper');
 const profileSelect  = document.getElementById('profileSelect');
 const scanHint       = document.getElementById('scanHint');
+const credToggle     = document.getElementById('credToggle');
 const scanningState  = document.getElementById('scanningState');
 const scanningTarget = document.getElementById('scanningTarget');
 const scanningSub    = document.getElementById('scanningSub');
@@ -43,6 +44,13 @@ profileSelect.addEventListener('change', () => {
   scanHint.textContent = info.hint;
 });
 
+credToggle.addEventListener('change', () => {
+  const info = PROFILE_INFO[profileSelect.value] || PROFILE_INFO.standard;
+  scanHint.textContent = credToggle.checked
+    ? `${info.hint} — credential checks ON: sends failed logins, may lock accounts`
+    : info.hint;
+});
+
 /* ── SCAN INPUT: glow ring on focus ── */
 targetInput.addEventListener('focus', () => scanWrapper.classList.add('active'));
 targetInput.addEventListener('blur',  () => scanWrapper.classList.remove('active'));
@@ -65,7 +73,7 @@ async function startScan() {
     const res = await fetch(`${API_BASE}/api/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, profile: profileSelect.value })
+      body: JSON.stringify({ target, profile: profileSelect.value, credential_checks: credToggle.checked })
     });
 
     if (!res.ok) {
@@ -88,6 +96,7 @@ function setScanningState(active, target = '') {
   scanBtn.disabled = active;
   targetInput.disabled = active;
   profileSelect.disabled = active;
+  credToggle.disabled = active;
 
   if (active) {
     const info = PROFILE_INFO[profileSelect.value] || PROFILE_INFO.standard;
@@ -143,6 +152,9 @@ function renderResults(data) {
 
   // Compliance / framework mapping
   renderCompliance(data.compliance || []);
+
+  // Credential & lockout checks
+  renderCredChecks(data.credential_checks);
 
   // Raw output
   const rawLines = buildRawOutput(data.ports || []);
@@ -309,6 +321,62 @@ function renderCompliance(tags) {
       </div>
     </div>
   `).join('');
+}
+
+/* ── CREDENTIAL & LOCKOUT CHECKS ── */
+const VERDICT_META = {
+  none_observed: { icon: '🚨', cls: 'verdict-bad',  label: 'No rate limiting observed' },
+  throttled:     { icon: '✓',  cls: 'verdict-ok',   label: 'Throttled' },
+  lockout:       { icon: '✓',  cls: 'verdict-ok',   label: 'Lockout protection' },
+  captcha:       { icon: '✓',  cls: 'verdict-ok',   label: 'CAPTCHA protection' }
+};
+
+function renderCredChecks(cc) {
+  const card = document.getElementById('credCard');
+  const list = document.getElementById('credFindings');
+  const count = document.getElementById('credCount');
+
+  if (!cc || !cc.enabled) {
+    card.classList.add('hidden');
+    list.innerHTML = '';
+    count.textContent = '';
+    return;
+  }
+
+  const items = [];
+  for (const f of cc.http_login_findings || []) {
+    const meta = VERDICT_META[f.verdict] || { icon: '?', cls: '', label: f.verdict };
+    items.push(`
+      <div class="finding-item">
+        <span class="finding-icon">${meta.icon}</span>
+        <span class="finding-text">
+          <span class="verdict-chip ${meta.cls}">${escHtml(meta.label)}</span>
+          <span class="finding-key">${escHtml(f.url)}</span>
+          ${escHtml(f.detail)}
+        </span>
+      </div>`);
+  }
+  for (const d of cc.db_findings || []) {
+    items.push(`
+      <div class="finding-item">
+        <span class="finding-icon">${d.vulnerable ? '🚨' : '✓'}</span>
+        <span class="finding-text">
+          ${d.vulnerable ? '<span class="verdict-chip verdict-bad">Vulnerable</span>' : '<span class="verdict-chip verdict-ok">OK</span>'}
+          <span class="finding-key">Port ${escHtml(d.port)} · ${escHtml(d.check)}</span>
+          ${escHtml(d.detail)}
+        </span>
+      </div>`);
+  }
+
+  const total = (cc.http_login_findings || []).length + (cc.db_findings || []).length;
+  count.textContent = total ? `${total} checked` : '';
+  list.innerHTML = total
+    ? items.join('')
+    : '<p class="finding-empty">Checks ran but no login endpoints or credential-protected services were found to test.</p>';
+  if (cc.error) {
+    list.innerHTML += `<p class="finding-empty">Partial failure: ${escHtml(cc.error)}</p>`;
+  }
+  card.classList.remove('hidden');
 }
 
 /* ── SCAN COMPARISON ── */
