@@ -123,7 +123,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 26px;
   padding: 40px 0 8px;
 }
 
@@ -509,7 +509,7 @@ body {
   white-space: nowrap;
 }
 
-.grade-badge.grade-A { color: var(--low);  background: rgba(34,197,94,0.12);  border: 1px solid rgba(34,197,94,0.35); }
+.grade-badge.grade-A { color: var(--low);  background: rgba(34,197,94,0.12);  border:1px solid rgba(34,197,94,0.35); }
 .grade-badge.grade-B { color: #A3E635;     background: rgba(163,230,53,0.1);  border: 1px solid rgba(163,230,53,0.3); }
 .grade-badge.grade-C { color: var(--med);  background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); }
 .grade-badge.grade-D { color: #FB923C;     background: rgba(251,146,60,0.1);  border: 1px solid rgba(251,146,60,0.3); }
@@ -576,7 +576,7 @@ body {
 .diff-warning {
   margin-top: 10px;
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--med);
   background: rgba(245,158,11,0.08);
   border: 1px solid rgba(245,158,11,0.25);
@@ -649,8 +649,13 @@ body {
   margin-bottom: 8px;
 }
 
-.diff-heading.opened-h  { color: var(--high); }
-.diff-heading.closed-h  { color: var(--low); }
+.diff-heading.opened-h  {
+   color: var(--high); 
+}
+
+.diff-heading.closed-h  {  
+   color: var(--low); 
+}
 
 .diff-port {
   display: inline-flex;
@@ -666,7 +671,9 @@ body {
   margin: 0 6px 6px 0;
 }
 
-.diff-port strong { color: var(--accent); }
+.diff-port strong { 
+   color: var(--accent); 
+}
 
 .diff-section .diff-heading:nth-of-type(1) { margin-top: 16px; }
 
@@ -698,7 +705,7 @@ body {
   padding: 3px 10px;
   border-radius: 99px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
 }
 
 .risk-pill.low    { color: var(--low);  background: rgba(34,197,94,0.1);   border: 1px solid rgba(34,197,94,0.25); }
@@ -764,9 +771,18 @@ body {
   text-transform: uppercase;
 }
 
-.state-badge.open   { color: var(--low);  background: rgba(34,197,94,0.12); }
-.state-badge.closed { color: var(--muted); background: rgba(148,163,184,0.1); }
-.state-badge.filtered { color: var(--med); background: rgba(245,158,11,0.1); }
+.state-badge.open   { 
+   color: var(--low); 
+   background: rgba(34,197,94,0.12);
+}
+.state-badge.closed {
+   color: var(--muted);
+   background: rgba(148,163,184,0.1);
+}
+.state-badge.filtered {
+   color: var(--med);
+   background: rgba(245,158,11,0.1); 
+}
 
 .risk-dot {
   display: inline-flex;
@@ -806,7 +822,9 @@ body {
 }
 
 @media (max-width: 600px) {
-  .findings-grid { grid-template-columns: 1fr; }
+  .findings-grid {
+     grid-template-columns: 1fr;
+  }
 }
 
 .finding-list {
@@ -829,8 +847,15 @@ body {
   flex-shrink: 0;
 }
 
-.finding-text { color: var(--text); line-height: 1.5; }
-.finding-key  { color: var(--muted); font-size: 0.7rem; display: block; margin-top: 1px; }
+.finding-text { 
+   color: var(--text); 
+   line-height: 1.5;
+}
+.finding-key  {
+   color: var(--muted); 
+   font-size: 0.7rem; 
+   display: block; margin-top: 1px;
+}
 
 .finding-empty {
   font-family: var(--mono);
@@ -938,10 +963,25 @@ body {
   cursor: pointer;
 }
 
-.history-id { color: var(--muted); font-size: 0.72rem; }
-.history-target { color: var(--accent); }
-.history-ts { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
-.history-summary { color: var(--text); font-size: 0.75rem; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-id { 
+   color: var(--muted);
+   font-size: 0.72rem; 
+}
+.history-target {
+   color: var(--accent);
+}
+.history-ts {
+   color: var(--muted);
+   font-size: 0.72rem; white-space: nowrap; 
+}
+.history-summary {
+   color: var(--text);
+   font-size: 0.75rem;
+   max-width: 320px;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap; 
+}
 
 .load-btn {
   background: transparent;
@@ -981,7 +1021,9 @@ body {
   animation: fadeSlideIn 0.25s ease;
 }
 
-.toast-icon { color: var(--high); }
+.toast-icon {
+   color: var(--high);
+}
 
 .toast.toast--info {
   background: rgba(56,189,248,0.12);
