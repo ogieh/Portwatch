@@ -30,6 +30,10 @@
         <span class="logo-tag">surface scanner</span>
       </div>
       <div class="header-meta">
+        <span class="backend-status" id="backendStatus">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusLabel">Checking backend…</span>
+        </span>
         <span class="disclaimer-badge">⚠ Authorised targets only</span>
       </div>
     </div>
@@ -70,7 +74,12 @@
           <span class="scanning-label" id="scanningLabel">Scanning</span>
           <span class="scanning-target" id="scanningTarget"></span>
         </div>
-        <p class="scanning-sub">Running Nmap with NSE scripts — please wait</p>
+        <p class="scanning-sub" id="scanningStageLabel">Running Nmap with NSE scripts — please wait</p>
+
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+        </div>
+        <p class="progress-elapsed" id="progressElapsed">0s elapsed</p>
       </div>
     </section>
 

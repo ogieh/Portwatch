@@ -24,6 +24,20 @@ targetInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') startScan();
 });
 
+/* ── FETCH WITH TIMEOUT ──
+   Wraps fetch() with a hard client-side ceiling so a genuinely hung network
+   request (not the scan itself -- that has its own backend watchdog) can
+   never leave the UI stuck forever with no feedback. */
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ── START SCAN ── */
 async function startScan() {
   const target = targetInput.value.trim();
@@ -33,27 +47,88 @@ async function startScan() {
   }
 
   setScanningState(true, target);
+  updateProgress(0, 'Queued', 0);
 
   try {
-    const res = await fetch(`${API_BASE}/api/scan`, {
+    const startRes = await fetchWithTimeout(`${API_BASE}/api/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target })
-    });
+    }, 10000);
+
+    if (!startRes.ok) {
+      const err = await startRes.json().catch(() => ({}));
+      throw new Error(err.error || `Server returned ${startRes.status}`);
+    }
+
+    const { job_id, target: sanitizedTarget } = await startRes.json();
+    if (sanitizedTarget) scanningTarget.textContent = sanitizedTarget;
+
+    const data = await pollScanStatus(job_id);
+    renderResults(data);
+    loadHistory();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      showError('Could not reach the backend — is it running on port 5000?');
+    } else {
+      showError(err.message || 'Scan failed — check that the backend is running.');
+    }
+  } finally {
+    setScanningState(false);
+  }
+}
+
+/* ── POLL SCAN STATUS ──
+   Backend runs the scan in a background thread; this polls its real
+   stage/elapsed progress rather than faking a bar with a timer. Finished
+   job results are cached server-side for a few minutes, so a transient
+   network blip on one poll is retried rather than aborting the whole scan. */
+async function pollScanStatus(jobId) {
+  const POLL_INTERVAL_MS = 1200;
+  const MAX_CONSECUTIVE_FAILURES = 5;
+  let consecutiveFailures = 0;
+
+  while (true) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+    let res;
+    try {
+      res = await fetchWithTimeout(`${API_BASE}/api/scan/status/${jobId}`, {}, 8000);
+    } catch (err) {
+      consecutiveFailures++;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        throw new Error('Lost connection to the backend while scanning.');
+      }
+      continue; // transient network blip -- retry on next poll
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || `Server returned ${res.status}`);
     }
+    consecutiveFailures = 0;
+    const status = await res.json();
 
-    const data = await res.json();
-    renderResults(data);
-    loadHistory();
-  } catch (err) {
-    showError(err.message || 'Scan failed — check that the backend is running.');
-  } finally {
-    setScanningState(false);
+    updateProgress(status.progress_pct, status.stage_label, status.elapsed);
+
+    if (status.status === 'done') {
+      return status.result;
+    }
+    if (status.status === 'error') {
+      throw new Error(status.error || 'Scan failed.');
+    }
+    // otherwise still "running" -- keep polling
   }
+}
+
+function updateProgress(pct, stageLabel, elapsedSeconds) {
+  const fill = document.getElementById('progressBarFill');
+  const stageEl = document.getElementById('scanningStageLabel');
+  const elapsedEl = document.getElementById('progressElapsed');
+
+  if (fill) fill.style.width = `${pct}%`;
+  if (stageEl) stageEl.textContent = stageLabel;
+  if (elapsedEl) elapsedEl.textContent = `${elapsedSeconds}s elapsed`;
 }
 
 /* ── SCANNING STATE ── */
@@ -89,9 +164,9 @@ function renderResults(data) {
     }
   }
 
-  // Summary
+  // Summary (prefer the detailed narrative report; fall back to the short summary)
   document.getElementById('summaryText').textContent =
-    data.summary || 'No summary available.';
+    data.narrative_summary || data.summary || 'No summary available.';
 
   // Ports table
   renderPortsTable(data.ports || []);
@@ -258,13 +333,15 @@ function toggleRaw() {
 /* ── HISTORY ── */
 async function loadHistory() {
   try {
-    const res = await fetch(`${API_BASE}/api/history`);
+    const res = await fetchWithTimeout(`${API_BASE}/api/history`, {}, 8000);
     if (!res.ok) return;
     const scans = await res.json();
     renderHistory(scans);
+    setBackendStatus(true);
   } catch {
     // History load failure is non-critical — just show empty state
     renderHistory([]);
+    setBackendStatus(false);
   }
 }
 
@@ -297,7 +374,7 @@ function renderHistory(scans) {
 
 async function loadScanById(id) {
   try {
-    const res = await fetch(`${API_BASE}/api/history/${id}`);
+    const res = await fetchWithTimeout(`${API_BASE}/api/history/${id}`, {}, 8000);
     if (!res.ok) throw new Error('Not found');
     const data = await res.json();
     renderResults(data);
@@ -334,8 +411,28 @@ function escHtml(str) {
     .replace(/"/g,'&quot;');
 }
 
+/* ── BACKEND STATUS INDICATOR ── */
+function setBackendStatus(online) {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusLabel');
+  if (!dot || !label) return;
+  dot.className = `status-dot ${online ? 'online' : 'offline'}`;
+  label.textContent = online ? 'Backend online' : 'Backend unreachable';
+}
+
+async function checkBackendHealth() {
+  try {
+    const res = await fetchWithTimeout(`${API_BASE}/api/health`, {}, 5000);
+    setBackendStatus(res.ok);
+  } catch {
+    setBackendStatus(false);
+  }
+}
+
 /* ── INIT ── */
 window.addEventListener('DOMContentLoaded', () => {
+  checkBackendHealth();
   loadHistory();
   targetInput.focus();
+  setInterval(checkBackendHealth, 20000); // periodic re-check, not just at load
 });
