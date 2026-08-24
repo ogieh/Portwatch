@@ -30,10 +30,6 @@
         <span class="logo-tag">surface scanner</span>
       </div>
       <div class="header-meta">
-        <span class="backend-status" id="backendStatus">
-          <span class="status-dot" id="statusDot"></span>
-          <span id="statusLabel">Checking backend…</span>
-        </span>
         <span class="disclaimer-badge">⚠ Authorised targets only</span>
       </div>
     </div>
@@ -55,6 +51,11 @@
             autocomplete="off"
             spellcheck="false"
           />
+          <select class="scan-select" id="profileSelect" aria-label="Scan profile">
+            <option value="quick">QUICK · TOP 20</option>
+            <option value="standard" selected>STANDARD · TOP 100</option>
+            <option value="deep">DEEP · TOP 1000</option>
+          </select>
           <button class="scan-btn" id="scanBtn" onclick="startScan()">
             <span class="scan-btn-text">Scan</span>
             <svg class="scan-btn-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -62,7 +63,7 @@
             </svg>
           </button>
         </div>
-        <p class="scan-hint">Runs Nmap with NSE vulnerability scripts — may take 60–300 seconds</p>
+        <p class="scan-hint" id="scanHint">Top 100 ports with NSE web scripts — may take 60–300 seconds</p>
       </div>
 
       <!-- SCANNING STATE -->
@@ -74,12 +75,7 @@
           <span class="scanning-label" id="scanningLabel">Scanning</span>
           <span class="scanning-target" id="scanningTarget"></span>
         </div>
-        <p class="scanning-sub" id="scanningStageLabel">Running Nmap with NSE scripts — please wait</p>
-
-        <div class="progress-bar-track">
-          <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
-        </div>
-        <p class="progress-elapsed" id="progressElapsed">0s elapsed</p>
+        <p class="scanning-sub" id="scanningSub">Running Nmap with NSE scripts — please wait</p>
       </div>
     </section>
 
@@ -90,7 +86,10 @@
       <div class="result-header">
         <div class="result-title-row">
           <h2 class="result-target" id="resultTarget"></h2>
+          <span class="profile-badge hidden" id="resultProfile"></span>
+          <span class="grade-badge hidden" id="resultGrade"></span>
           <span class="result-ts" id="resultTs"></span>
+          <button class="load-btn hidden" id="reportBtn" onclick="openCurrentReport()">Report</button>
         </div>
         <div class="result-risk-strip" id="resultRiskStrip">
           <!-- populated by JS -->
@@ -158,6 +157,19 @@
 
       </div>
 
+      <!-- FRAMEWORK MAPPING -->
+      <div class="card" id="complianceCard">
+        <div class="card-header">
+          <span class="card-eyebrow">Framework Mapping · OWASP Top 10</span>
+          <span class="card-count" id="complianceCount"></span>
+        </div>
+        <div class="card-body">
+          <div class="finding-list" id="complianceList">
+            <p class="finding-empty">No framework mappings for this scan.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- RAW NSE OUTPUT -->
       <div class="card collapsible" id="rawCard">
         <div class="card-header card-header--toggle" onclick="toggleRaw()">
@@ -169,6 +181,17 @@
         </div>
       </div>
 
+    </section>
+
+    <!-- SCAN COMPARISON -->
+    <section class="diff-section hidden" id="diffSection">
+      <div class="card">
+        <div class="card-header card-header--toggle">
+          <span class="card-eyebrow">Scan Comparison</span>
+          <span class="toggle-icon diff-close" onclick="closeDiff()">✕ close</span>
+        </div>
+        <div class="card-body" id="diffBody"></div>
+      </div>
     </section>
 
     <!-- HISTORY -->
@@ -188,7 +211,9 @@
             <tr>
               <th>#</th>
               <th>Target</th>
+              <th>Profile</th>
               <th>Scanned</th>
+              <th>Grade</th>
               <th>Summary</th>
               <th></th>
             </tr>

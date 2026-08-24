@@ -17,6 +17,21 @@ def init_db():
             full_data TEXT NOT NULL
         )
     """)
+    # Migration for databases created before scan profiles existed.
+    # If the column is already there this is a no-op.
+    try:
+        cursor.execute("ALTER TABLE scans ADD COLUMN profile TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # Migration for databases created before risk scoring existed.
+    try:
+        cursor.execute("ALTER TABLE scans ADD COLUMN risk_score INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE scans ADD COLUMN risk_grade TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -35,9 +50,22 @@ def save_scan(scan_data):
     record = dict(scan_data)
     record["timestamp"] = timestamp
 
+    risk = record.get("risk") or {}
+    risk_score = risk.get("score")
+    risk_grade = risk.get("grade")
+
     cursor.execute(
-        "INSERT INTO scans (target, timestamp, summary, full_data) VALUES (?, ?, ?, ?)",
-        (scan_data["target"], timestamp, scan_data.get("summary", ""), json.dumps(record)),
+        "INSERT INTO scans (target, timestamp, summary, full_data, profile, risk_score, risk_grade) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            scan_data["target"],
+            timestamp,
+            scan_data.get("summary", ""),
+            json.dumps(record),
+            record.get("profile", "standard"),
+            risk_score,
+            risk_grade,
+        ),
     )
     conn.commit()
     scan_id = cursor.lastrowid
@@ -48,16 +76,27 @@ def save_scan(scan_data):
 
 
 def get_history():
-    """Lightweight list for the history table: id, target, timestamp, summary."""
+    """Lightweight list for the history table: id, target, timestamp, summary, profile, grade."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT id, target, timestamp, summary FROM scans ORDER BY id DESC")
+    cursor.execute(
+        "SELECT id, target, timestamp, summary, profile, risk_score, risk_grade "
+        "FROM scans ORDER BY id DESC"
+    )
     rows = cursor.fetchall()
     conn.close()
 
     return [
-        {"id": r["id"], "target": r["target"], "timestamp": r["timestamp"], "summary": r["summary"]}
+        {
+            "id": r["id"],
+            "target": r["target"],
+            "timestamp": r["timestamp"],
+            "summary": r["summary"],
+            "profile": r["profile"] or "standard",
+            "risk_score": r["risk_score"],
+            "risk_grade": r["risk_grade"],
+        }
         for r in rows
     ]
 

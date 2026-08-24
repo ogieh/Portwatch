@@ -10,11 +10,38 @@ const API_BASE = 'http://127.0.0.1:5000';
 const targetInput    = document.getElementById('targetInput');
 const scanBtn        = document.getElementById('scanBtn');
 const scanWrapper    = document.getElementById('scanWrapper');
+const profileSelect  = document.getElementById('profileSelect');
+const scanHint       = document.getElementById('scanHint');
 const scanningState  = document.getElementById('scanningState');
 const scanningTarget = document.getElementById('scanningTarget');
+const scanningSub    = document.getElementById('scanningSub');
 const resultsSection = document.getElementById('resultsSection');
 const errorToast     = document.getElementById('errorToast');
 const toastMsg       = document.getElementById('toastMsg');
+
+let currentScanId = null;
+let diffBaseline  = null;
+let lastScans     = [];
+
+const PROFILE_INFO = {
+  quick: {
+    hint: 'Top 20 ports, no scripts — fastest, roughly 15–60 seconds',
+    sub: 'Quick scan — top 20 ports, no scripts'
+  },
+  standard: {
+    hint: 'Top 100 ports with NSE web scripts — may take 60–300 seconds',
+    sub: 'Running Nmap with NSE scripts — please wait'
+  },
+  deep: {
+    hint: 'Top 1000 ports with NSE web scripts — can take several minutes',
+    sub: 'Deep scan — top 1000 ports, longer timeouts, please wait'
+  }
+};
+
+profileSelect.addEventListener('change', () => {
+  const info = PROFILE_INFO[profileSelect.value] || PROFILE_INFO.standard;
+  scanHint.textContent = info.hint;
+});
 
 /* ── SCAN INPUT: glow ring on focus ── */
 targetInput.addEventListener('focus', () => scanWrapper.classList.add('active'));
@@ -23,20 +50,6 @@ targetInput.addEventListener('blur',  () => scanWrapper.classList.remove('active
 targetInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') startScan();
 });
-
-/* ── FETCH WITH TIMEOUT ──
-   Wraps fetch() with a hard client-side ceiling so a genuinely hung network
-   request (not the scan itself -- that has its own backend watchdog) can
-   never leave the UI stuck forever with no feedback. */
-async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 /* ── START SCAN ── */
 async function startScan() {
@@ -47,96 +60,38 @@ async function startScan() {
   }
 
   setScanningState(true, target);
-  updateProgress(0, 'Queued', 0);
 
   try {
-    const startRes = await fetchWithTimeout(`${API_BASE}/api/scan`, {
+    const res = await fetch(`${API_BASE}/api/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target })
-    }, 10000);
-
-    if (!startRes.ok) {
-      const err = await startRes.json().catch(() => ({}));
-      throw new Error(err.error || `Server returned ${startRes.status}`);
-    }
-
-    const { job_id, target: sanitizedTarget } = await startRes.json();
-    if (sanitizedTarget) scanningTarget.textContent = sanitizedTarget;
-
-    const data = await pollScanStatus(job_id);
-    renderResults(data);
-    loadHistory();
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      showError('Could not reach the backend — is it running on port 5000?');
-    } else {
-      showError(err.message || 'Scan failed — check that the backend is running.');
-    }
-  } finally {
-    setScanningState(false);
-  }
-}
-
-/* ── POLL SCAN STATUS ──
-   Backend runs the scan in a background thread; this polls its real
-   stage/elapsed progress rather than faking a bar with a timer. Finished
-   job results are cached server-side for a few minutes, so a transient
-   network blip on one poll is retried rather than aborting the whole scan. */
-async function pollScanStatus(jobId) {
-  const POLL_INTERVAL_MS = 1200;
-  const MAX_CONSECUTIVE_FAILURES = 5;
-  let consecutiveFailures = 0;
-
-  while (true) {
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-
-    let res;
-    try {
-      res = await fetchWithTimeout(`${API_BASE}/api/scan/status/${jobId}`, {}, 8000);
-    } catch (err) {
-      consecutiveFailures++;
-      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-        throw new Error('Lost connection to the backend while scanning.');
-      }
-      continue; // transient network blip -- retry on next poll
-    }
+      body: JSON.stringify({ target, profile: profileSelect.value })
+    });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || `Server returned ${res.status}`);
     }
-    consecutiveFailures = 0;
-    const status = await res.json();
 
-    updateProgress(status.progress_pct, status.stage_label, status.elapsed);
-
-    if (status.status === 'done') {
-      return status.result;
-    }
-    if (status.status === 'error') {
-      throw new Error(status.error || 'Scan failed.');
-    }
-    // otherwise still "running" -- keep polling
+    const data = await res.json();
+    renderResults(data);
+    loadHistory();
+  } catch (err) {
+    showError(err.message || 'Scan failed — check that the backend is running.');
+  } finally {
+    setScanningState(false);
   }
-}
-
-function updateProgress(pct, stageLabel, elapsedSeconds) {
-  const fill = document.getElementById('progressBarFill');
-  const stageEl = document.getElementById('scanningStageLabel');
-  const elapsedEl = document.getElementById('progressElapsed');
-
-  if (fill) fill.style.width = `${pct}%`;
-  if (stageEl) stageEl.textContent = stageLabel;
-  if (elapsedEl) elapsedEl.textContent = `${elapsedSeconds}s elapsed`;
 }
 
 /* ── SCANNING STATE ── */
 function setScanningState(active, target = '') {
   scanBtn.disabled = active;
   targetInput.disabled = active;
+  profileSelect.disabled = active;
 
   if (active) {
+    const info = PROFILE_INFO[profileSelect.value] || PROFILE_INFO.standard;
+    scanningSub.textContent = info.sub;
     scanningTarget.textContent = target;
     scanningState.classList.remove('hidden');
     resultsSection.classList.add('hidden');
@@ -147,8 +102,20 @@ function setScanningState(active, target = '') {
 
 /* ── RENDER RESULTS ── */
 function renderResults(data) {
+  currentScanId = data.id || null;
+
   // Header
   document.getElementById('resultTarget').textContent = data.target;
+  const profileBadge = document.getElementById('resultProfile');
+  if (data.profile) {
+    profileBadge.textContent = data.profile;
+    profileBadge.classList.remove('hidden');
+  } else {
+    profileBadge.textContent = '';
+    profileBadge.classList.add('hidden');
+  }
+  renderGrade(data.risk);
+  document.getElementById('reportBtn').classList.toggle('hidden', !currentScanId);
   document.getElementById('resultTs').textContent = formatTs(data.timestamp);
 
   // Risk pill strip
@@ -164,15 +131,18 @@ function renderResults(data) {
     }
   }
 
-  // Summary (prefer the detailed narrative report; fall back to the short summary)
+  // Summary
   document.getElementById('summaryText').textContent =
-    data.narrative_summary || data.summary || 'No summary available.';
+    data.summary || 'No summary available.';
 
   // Ports table
   renderPortsTable(data.ports || []);
 
   // SSL / HTTP findings
   renderFindings(data.ports || []);
+
+  // Compliance / framework mapping
+  renderCompliance(data.compliance || []);
 
   // Raw output
   const rawLines = buildRawOutput(data.ports || []);
@@ -300,6 +270,186 @@ function extractMissingHeaders(raw) {
   return known.filter(h => raw.toLowerCase().includes('missing') && raw.includes(h));
 }
 
+/* ── RISK GRADE ── */
+function renderGrade(risk) {
+  const el = document.getElementById('resultGrade');
+  const grade = risk && risk.grade;
+  if (!grade) {
+    el.textContent = '';
+    el.classList.add('hidden');
+    el.className = 'grade-badge hidden';
+    return;
+  }
+  const score = (risk.score !== undefined && risk.score !== null) ? ` · ${risk.score}/100` : '';
+  el.textContent = `${grade}${score}`;
+  el.className = `grade-badge grade-${grade}`;
+  el.classList.remove('hidden');
+}
+
+/* ── COMPLIANCE / FRAMEWORK MAPPING ── */
+function renderCompliance(tags) {
+  const list = document.getElementById('complianceList');
+  const count = document.getElementById('complianceCount');
+
+  count.textContent = tags.length ? `${tags.length} mapped` : '';
+
+  if (!tags.length) {
+    list.innerHTML = '<p class="finding-empty">No framework mappings for this scan.</p>';
+    return;
+  }
+
+  list.innerHTML = tags.map(tag => `
+    <div class="compliance-item">
+      <span class="compliance-cat">${escHtml(tag.category)}</span>
+      <div class="compliance-body">
+        <span class="compliance-name">${escHtml(tag.name)}</span>
+        <ul class="compliance-evidence">
+          ${tag.evidence.map(e => `<li>${escHtml(e)}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ── SCAN COMPARISON ── */
+async function onCompareClick(id) {
+  const scan = lastScans.find(s => s.id === id);
+  const target = scan ? scan.target : '';
+
+  if (!diffBaseline) {
+    diffBaseline = { id, target };
+    markBaselineRow(id);
+    showInfo(`Baseline set: scan #${id}. Now click Compare on another scan of ${target}.`);
+    return;
+  }
+
+  if (diffBaseline.id === id) {
+    clearDiff();
+    showInfo('Comparison cancelled — baseline cleared.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/history/${diffBaseline.id}/diff/${id}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `Server returned ${res.status}`);
+    renderDiff(body);
+    clearBaselineRow();
+    diffBaseline = { id, target };
+    markBaselineRow(id);
+  } catch (err) {
+    clearDiff();
+    showError(err.message || 'Could not compare those scans.');
+  }
+}
+
+function markBaselineRow(id) {
+  clearBaselineRow();
+  const tr = document.querySelector(`#historyBody tr[data-scanid="${id}"]`);
+  if (tr) tr.classList.add('baseline-row');
+}
+
+function clearBaselineRow() {
+  document.querySelectorAll('#historyBody tr.baseline-row')
+    .forEach(tr => tr.classList.remove('baseline-row'));
+}
+
+function renderDiff(diff) {
+  const section = document.getElementById('diffSection');
+  const body = document.getElementById('diffBody');
+
+  let deltaHtml = '<p class="finding-empty">Score not comparable — one of these scans predates scoring.</p>';
+  if (diff.score_delta !== null && diff.score_delta !== undefined) {
+    const d = diff.score_delta;
+    const dir = d > 0 ? { sym: '▲', cls: 'delta-up', word: 'improved' }
+              : d < 0 ? { sym: '▼', cls: 'delta-down', word: 'declined' }
+              :         { sym: '■', cls: 'delta-flat', word: 'unchanged' };
+    deltaHtml = `
+      <span class="score-delta ${dir.cls}">
+        <span class="delta-sym">${dir.sym}</span>
+        ${escHtml(diff.before.risk_score)} → ${escHtml(diff.after.risk_score)}
+        (${d > 0 ? '+' : ''}${d})
+      </span>
+      <span class="delta-word ${dir.cls}">Risk score ${dir.word}</span>`;
+    if (diff.grade_change) {
+      deltaHtml += `<span class="grade-change">Grade ${escHtml(diff.grade_change.from)} → ${escHtml(diff.grade_change.to)}</span>`;
+    }
+  }
+
+  const portPill = p => `
+    <span class="diff-port" title="${escHtml(p.version || '')}">
+      <strong>${escHtml(p.port)}</strong> ${escHtml(p.service || '—')}
+    </span>`;
+
+  const openedHtml  = diff.opened_ports.length
+    ? diff.opened_ports.map(portPill).join('')
+    : '<p class="finding-empty">None.</p>';
+  const closedHtml  = diff.closed_ports.length
+    ? diff.closed_ports.map(portPill).join('')
+    : '<p class="finding-empty">None.</p>';
+
+  let changedHtml = '<p class="finding-empty">No service or version changes.</p>';
+  if (diff.changed_ports.length) {
+    changedHtml = `
+      <table class="ports-table">
+        <thead><tr><th>Port</th><th>Before</th><th>After</th></tr></thead>
+        <tbody>
+          ${diff.changed_ports.map(c => `
+            <tr>
+              <td><span class="port-number">${escHtml(c.port)}</span></td>
+              <td>${escHtml(c.from.service || '—')} <span class="version-text">${escHtml(c.from.version || '')}</span></td>
+              <td>${escHtml(c.to.service || '—')} <span class="version-text">${escHtml(c.to.version || '')}</span></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  const warningHtml = diff.warning
+    ? `<p class="diff-warning">⚠ ${escHtml(diff.warning)}</p>`
+    : '';
+
+  body.innerHTML = `
+    <div class="diff-meta">
+      <span class="mono">#${escHtml(diff.before.id)} (${formatTs(diff.before.timestamp)})</span>
+      <span class="diff-arrow">→</span>
+      <span class="mono">#${escHtml(diff.after.id)} (${formatTs(diff.after.timestamp)})</span>
+      <span class="profile-badge">${escHtml(diff.target)}</span>
+    </div>
+    ${warningHtml}
+    <div class="diff-score">${deltaHtml}</div>
+    <div class="diff-grid">
+      <div>
+        <h4 class="diff-heading opened-h">Opened ports (${diff.opened_ports.length})</h4>
+        ${openedHtml}
+      </div>
+      <div>
+        <h4 class="diff-heading closed-h">Closed ports (${diff.closed_ports.length})</h4>
+        ${closedHtml}
+      </div>
+    </div>
+    <h4 class="diff-heading">Service / version changes</h4>
+    ${changedHtml}
+  `;
+
+  section.classList.remove('hidden');
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function clearDiff() {
+  diffBaseline = null;
+  clearBaselineRow();
+  document.getElementById('diffSection').classList.add('hidden');
+}
+
+/* ── REPORT ── */
+function openCurrentReport() {
+  if (currentScanId) openReport(currentScanId);
+}
+
+function openReport(id) {
+  window.open(`${API_BASE}/api/report/${id}`, '_blank');
+}
+
 /* ── RAW OUTPUT ── */
 function buildRawOutput(ports) {
   const lines = [];
@@ -333,15 +483,13 @@ function toggleRaw() {
 /* ── HISTORY ── */
 async function loadHistory() {
   try {
-    const res = await fetchWithTimeout(`${API_BASE}/api/history`, {}, 8000);
+    const res = await fetch(`${API_BASE}/api/history`);
     if (!res.ok) return;
     const scans = await res.json();
     renderHistory(scans);
-    setBackendStatus(true);
   } catch {
     // History load failure is non-critical — just show empty state
     renderHistory([]);
-    setBackendStatus(false);
   }
 }
 
@@ -351,6 +499,7 @@ function renderHistory(scans) {
   const empty  = document.getElementById('historyEmpty');
 
   tbody.innerHTML = '';
+  lastScans = scans;
   hcount.textContent = `${scans.length} scan${scans.length !== 1 ? 's' : ''}`;
 
   if (!scans.length) {
@@ -361,12 +510,24 @@ function renderHistory(scans) {
 
   for (const scan of scans) {
     const tr = document.createElement('tr');
+    tr.dataset.scanid = scan.id;
+    const gradeCell = scan.risk_grade
+      ? `<span class="grade-badge grade-${escHtml(scan.risk_grade)}">${escHtml(scan.risk_grade)}</span>`
+      : '<span class="version-text">—</span>';
     tr.innerHTML = `
       <td class="history-id">#${scan.id}</td>
       <td class="history-target">${escHtml(scan.target)}</td>
+      <td><span class="profile-badge">${escHtml(scan.profile || 'standard')}</span></td>
       <td class="history-ts">${formatTs(scan.timestamp)}</td>
+      <td>${gradeCell}</td>
       <td class="history-summary">${escHtml(scan.summary || '—')}</td>
-      <td><button class="load-btn" onclick="loadScanById(${scan.id})">Load</button></td>
+      <td>
+        <div class="history-actions">
+          <button class="load-btn" onclick="loadScanById(${scan.id})">Load</button>
+          <button class="load-btn" onclick="onCompareClick(${scan.id})">Compare</button>
+          <button class="load-btn" onclick="openReport(${scan.id})">Report</button>
+        </div>
+      </td>
     `;
     tbody.appendChild(tr);
   }
@@ -374,7 +535,7 @@ function renderHistory(scans) {
 
 async function loadScanById(id) {
   try {
-    const res = await fetchWithTimeout(`${API_BASE}/api/history/${id}`, {}, 8000);
+    const res = await fetch(`${API_BASE}/api/history/${id}`);
     if (!res.ok) throw new Error('Not found');
     const data = await res.json();
     renderResults(data);
@@ -385,12 +546,16 @@ async function loadScanById(id) {
 
 /* ── ERROR TOAST ── */
 let toastTimer;
-function showError(msg) {
+function showToast(msg, type = 'error') {
   toastMsg.textContent = msg;
   errorToast.classList.remove('hidden');
+  errorToast.classList.toggle('toast--info', type === 'info');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => errorToast.classList.add('hidden'), 5000);
 }
+
+function showError(msg) { showToast(msg, 'error'); }
+function showInfo(msg)  { showToast(msg, 'info'); }
 
 /* ── UTILS ── */
 function formatTs(ts) {
@@ -411,28 +576,8 @@ function escHtml(str) {
     .replace(/"/g,'&quot;');
 }
 
-/* ── BACKEND STATUS INDICATOR ── */
-function setBackendStatus(online) {
-  const dot = document.getElementById('statusDot');
-  const label = document.getElementById('statusLabel');
-  if (!dot || !label) return;
-  dot.className = `status-dot ${online ? 'online' : 'offline'}`;
-  label.textContent = online ? 'Backend online' : 'Backend unreachable';
-}
-
-async function checkBackendHealth() {
-  try {
-    const res = await fetchWithTimeout(`${API_BASE}/api/health`, {}, 5000);
-    setBackendStatus(res.ok);
-  } catch {
-    setBackendStatus(false);
-  }
-}
-
 /* ── INIT ── */
 window.addEventListener('DOMContentLoaded', () => {
-  checkBackendHealth();
   loadHistory();
   targetInput.focus();
-  setInterval(checkBackendHealth, 20000); // periodic re-check, not just at load
 });
