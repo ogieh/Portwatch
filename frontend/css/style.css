@@ -86,12 +86,12 @@ body {
 
 .logo-tag {
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--accent);
   background: rgba(56,189,248,0.1);
   border: 1px solid rgba(56,189,248,0.25);
   padding: 2px 7px;
-  border-radius: 3px;
+  border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -214,7 +214,7 @@ body {
 
 .scan-hint {
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--muted);
   text-align: center;
   margin-top: 10px;
