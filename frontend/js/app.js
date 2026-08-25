@@ -104,10 +104,11 @@ function setScanningState(active, target = '') {
     scanningTarget.textContent = target;
     scanningState.classList.remove('hidden');
     resultsSection.classList.add('hidden');
-  } else {
+  } 
+  else {
     scanningState.classList.add('hidden');
   }
-}
+
 
 /* ── RENDER RESULTS ── */
 function renderResults(data) {
@@ -116,10 +117,12 @@ function renderResults(data) {
   // Header
   document.getElementById('resultTarget').textContent = data.target;
   const profileBadge = document.getElementById('resultProfile');
+}
   if (data.profile) {
     profileBadge.textContent = data.profile;
     profileBadge.classList.remove('hidden');
-  } else {
+  } 
+  else {
     profileBadge.textContent = '';
     profileBadge.classList.add('hidden');
   }
@@ -181,6 +184,7 @@ function renderPortsTable(ports) {
 
   const open = ports.filter(p => p.state === 'open');
   count.textContent = `${open.length} open`;
+}
 
   if (!open.length) {
     const tr = document.createElement('tr');
@@ -208,6 +212,7 @@ function renderFindings(ports) {
   const httpEl = document.getElementById('httpFindings');
   const sslItems  = [];
   const httpItems = [];
+}
 
   for (const port of ports) {
     if (!port.scripts) continue;
@@ -542,7 +547,8 @@ function toggleRaw() {
   if (body.classList.contains('hidden')) {
     body.classList.remove('hidden');
     icon.textContent = '▾ collapse';
-  } else {
+  } 
+  else {
     body.classList.add('hidden');
     icon.textContent = '▸ expand';
   }
@@ -555,7 +561,8 @@ async function loadHistory() {
     if (!res.ok) return;
     const scans = await res.json();
     renderHistory(scans);
-  } catch {
+  } 
+  catch {
     // History load failure is non-critical — just show empty state
     renderHistory([]);
   }
@@ -607,7 +614,8 @@ async function loadScanById(id) {
     if (!res.ok) throw new Error('Not found');
     const data = await res.json();
     renderResults(data);
-  } catch (err) {
+  } 
+  catch (err) {
     showError('Could not load scan #' + id);
   }
 }
@@ -633,7 +641,8 @@ function formatTs(ts) {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
     });
-  } catch { return ts; }
+  } 
+  catch { return ts; }
 }
 
 function escHtml(str) {
