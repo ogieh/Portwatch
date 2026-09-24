@@ -1,97 +1,136 @@
-from flask import Flask, request, jsonify
+"""
+PortWatch Pro application entry point.
+
+Application-factory pattern. `flask --app app run`, `python app.py` and
+gunicorn (`gunicorn app:app`) all work. Serves the SPA frontend from
+../frontend and the JSON API under /api.
+"""
+
+import os
+import sys
+
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 
-from database import init_db, save_scan, get_history, get_scan_by_id
-from scanner import run_scan, SCAN_PROFILES, DEFAULT_PROFILE
-from scoring import compute_risk
-from compliance import generate_compliance_tags
-from diffing import build_diff
-from report import build_report_html
+# The services/, api/, core/, models/ packages are imported by short name from
+# within the backend dir, matching how the original project laid out imports.
+BACKEND_DIR = os.path.abspath(os.path.dirname(__file__))
+for sub in ("core", "api", "services", "models"):
+    path = os.path.join(BACKEND_DIR, sub)
+    if path not in sys.path:
+        sys.path.insert(0, path)
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 
-app = Flask(__name__)
-CORS(app)
+from core.config import Config, validate as validate_config   # noqa: E402
+from models.db import db                                       # noqa: E402
 
-init_db()
+FRONTEND_DIR = os.path.abspath(os.path.join(BACKEND_DIR, "..", "frontend"))
 
 
-@app.route("/api/scan", methods=["POST"])
-def scan():
-    data = request.get_json(silent=True) or {}
-    target = data.get("target", "").strip()
-    profile = data.get("profile") or DEFAULT_PROFILE
-    credential_checks = bool(data.get("credential_checks"))
+def _configure_cors(app):
+    """Development: open. Production: only PORTWATCH_CORS_ORIGINS (none = off).
+    The SPA is same-origin, so production normally needs no CORS at all."""
+    origins = app.config.get("CORS_ORIGINS") or []
+    if app.config.get("IS_PRODUCTION"):
+        if origins:
+            CORS(app, resources={r"/api/*": {"origins": origins}},
+                 supports_credentials=False)
+    else:
+        CORS(app, resources={r"/api/*": {"origins": origins or "*"}})
 
-    if not target:
-        return jsonify({"error": "Target is required"}), 400
 
-    if profile not in SCAN_PROFILES:
+def _security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    if response.mimetype == "application/json":
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+def create_app(config_object=Config):
+    app = Flask(__name__, static_folder=None)
+    app.config.from_object(config_object)
+
+    for warning in validate_config(config_object):
+        app.logger.warning("CONFIG: %s", warning)
+
+    _configure_cors(app)
+    app.after_request(_security_headers)
+
+    db.init_app(app)
+
+    # Register API blueprints.
+    from api.auth import bp as auth_bp
+    from api.projects import bp as projects_bp
+    from api.scans import bp as scans_bp
+    from api.dashboard import bp as dashboard_bp
+    from api.schedules import bp as schedules_bp
+    from api.notifications import bp as notifications_bp
+    from api.audit import bp as audit_bp
+    from api.recon import bp as recon_bp
+    from api.pentest import bp as pentest_bp
+
+    for bp in (auth_bp, projects_bp, scans_bp, dashboard_bp, schedules_bp,
+               notifications_bp, audit_bp, recon_bp, pentest_bp):
+        app.register_blueprint(bp)
+
+    # Schema: Alembic brings any database (fresh, or pre-2.1) up to head.
+    with app.app_context():
+        if app.config.get("AUTO_MIGRATE", True):
+            from core.migrate import upgrade_to_head
+            upgrade_to_head(app)
+        else:
+            app.logger.info("AUTO_MIGRATE off; run `alembic upgrade head` yourself.")
+
+    # ---- Meta / health ----
+    @app.route("/api/health")
+    def health():
+        import scanner
         return jsonify({
-            "error": f"Unknown scan profile '{profile}'. Valid profiles: "
-                     f"{', '.join(sorted(SCAN_PROFILES))}"
-        }), 400
+            "status": "ok",
+            "app": app.config["APP_NAME"],
+            "version": app.config["APP_VERSION"],
+            "env": app.config.get("ENV"),
+            "engine": "nmap" if scanner.nmap_available() else "simulated",
+            "simulate_forced": bool(app.config.get("SIMULATE_SCANS")),
+            "scan_type": app.config.get("NMAP_SCAN_TYPE"),
+        })
 
-    try:
-        scan_result = run_scan(target, profile, credential_checks)
-    except Exception as e:
-        # Nmap failures (bad target, nmap not installed, permission issues, etc.)
-        return jsonify({"error": f"Scan failed: {str(e)}"}), 500
+    @app.errorhandler(429)
+    def _too_many(e):
+        return jsonify({"error": "Too many requests"}), 429
 
-    # Scored and tagged at save time so history never silently re-grades
-    # itself if the formula changes later.
-    cc = scan_result.get("credential_checks")
-    scan_result["risk"] = compute_risk(scan_result["ports"], cc)
-    scan_result["compliance"] = generate_compliance_tags(scan_result["ports"], cc)
+    # ---- Serve the SPA frontend ----
+    @app.route("/")
+    def index():
+        return send_from_directory(FRONTEND_DIR, "index.html")
 
-    saved = save_scan(scan_result)
-    return jsonify(saved)
+    @app.route("/<path:path>")
+    def static_proxy(path):
+        full = os.path.join(FRONTEND_DIR, path)
+        if os.path.isfile(full):
+            return send_from_directory(FRONTEND_DIR, path)
+        # SPA fallback: unknown non-API paths return the app shell.
+        return send_from_directory(FRONTEND_DIR, "index.html")
 
+    # ---- Background workers ----
+    import scan_jobs
+    scan_jobs.start(app)
+    import scheduler_service
+    scheduler_service.start(app)
 
-@app.route("/api/history", methods=["GET"])
-def history():
-    return jsonify(get_history())
-
-
-@app.route("/api/history/<int:scan_id>", methods=["GET"])
-def history_item(scan_id):
-    record = get_scan_by_id(scan_id)
-    if record is None:
-        return jsonify({"error": "Scan not found"}), 404
-    return jsonify(record)
-
-
-@app.route("/api/history/<int:before_id>/diff/<int:after_id>", methods=["GET"])
-def history_diff(before_id, after_id):
-    before = get_scan_by_id(before_id)
-    after = get_scan_by_id(after_id)
-    if before is None or after is None:
-        return jsonify({"error": "One or both scans were not found"}), 404
-
-    try:
-        diff = build_diff(before, after)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-    if diff["profile_mismatch"]:
-        diff["warning"] = (
-            f"Profile mismatch: #{before_id} used '{diff['before']['profile']}' and "
-            f"#{after_id} used '{diff['after']['profile']}'. Port and score "
-            f"differences may just reflect the deeper scan, not a real change."
-        )
-    return jsonify(diff)
+    return app
 
 
-@app.route("/api/report/<int:scan_id>", methods=["GET"])
-def report(scan_id):
-    record = get_scan_by_id(scan_id)
-    if record is None:
-        return jsonify({"error": "Scan not found"}), 404
-    return build_report_html(record)
-
-
-@app.route("/api/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"})
-
+# Module-level app for `python app.py`, `flask --app app run` and gunicorn.
+# Tests import create_app and build their own; guard so importing this module
+# for that purpose does not also boot a default app against the real DB.
+if os.environ.get("PORTWATCH_NO_DEFAULT_APP") != "1":
+    app = create_app()
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", "5000"))
+    debug = not app.config.get("IS_PRODUCTION")
+    app.run(debug=debug, host="0.0.0.0", port=port, use_reloader=False)

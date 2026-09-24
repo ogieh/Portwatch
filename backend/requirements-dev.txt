@@ -1,0 +1,13 @@
+# Extract and run with learning mode
+tar -xzf pentest_toolkit_v2.tar.gz
+cd pentest_toolkit_v2
+pip install -r requirements.txt
+
+# Interactive (asks about learning mode at startup)
+python pentest.py
+
+# Direct with learning enabled
+python pentest.py recon -t 192.168.1.0/24 -e
+python pentest.py full -t 10.0.0.5 -e
+python pentest.py vuln -t 10.0.0.5 -c smb -e
+python pentest.py web -t http://10.0.0.5 -e

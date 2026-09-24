@@ -1,660 +1,257 @@
 /* ─────────────────────────────────────────
-   PortWatch — app.js
-   Connects to Flask backend at /api/scan and /api/history
-   No external libraries — plain fetch()
+   PortWatch Pro - app.js
+   Boots the app: renders the auth screen when logged out, the shell + routed
+   view when logged in. Hash-based router keeps deep links working on refresh.
 ───────────────────────────────────────── */
 
-const API_BASE = 'http://127.0.0.1:5000';
-
-/* ── DOM REFS ── */
-const targetInput    = document.getElementById('targetInput');
-const scanBtn        = document.getElementById('scanBtn');
-const scanWrapper    = document.getElementById('scanWrapper');
-const profileSelect  = document.getElementById('profileSelect');
-const scanHint       = document.getElementById('scanHint');
-const credToggle     = document.getElementById('credToggle');
-const scanningState  = document.getElementById('scanningState');
-const scanningTarget = document.getElementById('scanningTarget');
-const scanningSub    = document.getElementById('scanningSub');
-const resultsSection = document.getElementById('resultsSection');
-const errorToast     = document.getElementById('errorToast');
-const toastMsg       = document.getElementById('toastMsg');
-
-let currentScanId = null;
-let diffBaseline  = null;
-let lastScans     = [];
-
-const PROFILE_INFO = {
-  quick: {
-    hint: 'Top 20 ports, no scripts — fastest, roughly 15–60 seconds',
-    sub: 'Quick scan — top 20 ports, no scripts'
-  },
-  standard: {
-    hint: 'Top 100 ports with NSE web scripts — may take 60–300 seconds',
-    sub: 'Running Nmap with NSE scripts — please wait'
-  },
-  deep: {
-    hint: 'Top 1000 ports with NSE web scripts — can take several minutes',
-    sub: 'Deep scan — top 1000 ports, longer timeouts, please wait'
-  }
+const ROUTES = {
+  dashboard: { render: (m) => Views.dashboard(m), nav: 'dashboard' },
+  projects: { render: (m) => Views.projects(m), nav: 'projects' },
+  recon: { render: (m) => Views.recon(m), nav: 'recon' },
+  schedules: { render: (m) => Views.schedules(m), nav: 'schedules' },
+  settings: { render: (m) => Views.settings(m), nav: 'settings' },
 };
 
-profileSelect.addEventListener('change', () => {
-  const info = PROFILE_INFO[profileSelect.value] || PROFILE_INFO.standard;
-  scanHint.textContent = info.hint;
-});
+// Navigate helper exposed globally so views can call go('path').
+function go(path) {
+  if (('#' + path) === location.hash) { route(); }  // re-render same route
+  else location.hash = path;
+}
 
-credToggle.addEventListener('change', () => {
-  const info = PROFILE_INFO[profileSelect.value] || PROFILE_INFO.standard;
-  scanHint.textContent = credToggle.checked
-    ? `${info.hint} — credential checks ON: sends failed logins, may lock accounts`
-    : info.hint;
-});
+function currentPath() {
+  return (location.hash || '#dashboard').slice(1);
+}
 
-/* ── SCAN INPUT: glow ring on focus ── */
-targetInput.addEventListener('focus', () => scanWrapper.classList.add('active'));
-targetInput.addEventListener('blur',  () => scanWrapper.classList.remove('active'));
+async function route() {
+  const path = currentPath();
+  const [head, param] = path.split('/');
 
-targetInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') startScan();
-});
-
-/* ── START SCAN ── */
-async function startScan() {
-  const target = targetInput.value.trim();
-  if (!target) {
-    showError('Enter a target domain or IP address first.');
+  if (!API.getToken()) {
+    if (head === 'reset' && param) { renderReset(param); return; }
+    renderAuth();
     return;
   }
 
-  setScanningState(true, target);
+  renderShell(head);
+  const mount = document.getElementById('viewMount');
 
   try {
-    const res = await fetch(`${API_BASE}/api/scan`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, profile: profileSelect.value, credential_checks: credToggle.checked })
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `Server returned ${res.status}`);
-    }
-
-    const data = await res.json();
-    renderResults(data);
-    loadHistory();
+    if (head === 'project' && param) return Views.projectDetail(mount, param);
+    if (head === 'scan' && param) return Views.scanDetail(mount, param);
+    const r = ROUTES[head] || ROUTES.dashboard;
+    return r.render(mount);
   } catch (err) {
-    showError(err.message || 'Scan failed — check that the backend is running.');
-  } finally {
-    setScanningState(false);
+    mount.innerHTML = `<div class="empty"><h3>Failed to load</h3><p>${UI.esc(err.message)}</p></div>`;
   }
 }
 
-/* ── SCANNING STATE ── */
-function setScanningState(active, target = '') {
-  scanBtn.disabled = active;
-  targetInput.disabled = active;
-  profileSelect.disabled = active;
-  credToggle.disabled = active;
+// ══════════════════════ APP SHELL ══════════════════════
+function renderShell(activeHead) {
+  const root = document.getElementById('root');
+  const user = API.currentUser() || { name: '?', role: '' };
+  const initials = user.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
-  if (active) {
-    const info = PROFILE_INFO[profileSelect.value] || PROFILE_INFO.standard;
-    scanningSub.textContent = info.sub;
-    scanningTarget.textContent = target;
-    scanningState.classList.remove('hidden');
-    resultsSection.classList.add('hidden');
-  } 
-  else {
-    scanningState.classList.add('hidden');
+  // Map detail routes onto their parent nav item.
+  const navActive = { project: 'projects', scan: 'projects' }[activeHead] || activeHead;
+
+  const navItems = [
+    { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { key: 'projects', label: 'Projects', icon: 'projects' },
+    { key: 'recon', label: 'Recon', icon: 'scan' },
+    { key: 'schedules', label: 'Schedules', icon: 'schedule' },
+    { key: 'settings', label: 'Settings', icon: 'settings' },
+  ];
+
+  // Only rebuild the shell if it isn't already present (keeps view swaps cheap).
+  if (!document.getElementById('appShell')) {
+    root.innerHTML = `
+      <div class="app" id="appShell">
+        <aside class="sidebar">
+          <div class="brand">
+            <span class="brand-icon">${UI.icon('logo')}</span>
+            <span class="brand-name">PortWatch<span class="pro">PRO</span></span>
+          </div>
+          <nav class="nav" id="nav">
+            ${navItems.map(n => `<button class="nav-item" data-nav="${n.key}">${UI.icon(n.icon)}<span>${n.label}</span></button>`).join('')}
+          </nav>
+          <div class="sidebar-foot">
+            <div class="user-chip">
+              <div class="user-avatar">${UI.esc(initials)}</div>
+              <div class="user-info">
+                <div class="user-name">${UI.esc(user.name)}</div>
+                <div class="user-role">${UI.esc(user.role)}</div>
+              </div>
+            </div>
+            <button class="logout-btn" id="logoutBtn">Sign out</button>
+            <div class="engine-badge" id="engineBadge"><span class="engine-dot"></span> checking engine...</div>
+          </div>
+        </aside>
+        <main class="main"><div id="viewMount"></div></main>
+      </div>`;
+
+    document.querySelectorAll('[data-nav]').forEach(btn =>
+      btn.onclick = () => go(btn.dataset.nav));
+    document.getElementById('logoutBtn').onclick = logout;
+
+    // Engine badge (nmap vs simulated)
+    API.health().then(h => {
+      const badge = document.getElementById('engineBadge');
+      if (!badge) return;
+      const live = h.engine === 'nmap';
+      badge.innerHTML = `<span class="engine-dot ${live ? 'live' : ''}"></span> ${live ? 'nmap engine' : 'simulated engine'} · v${h.version}`;
+    }).catch(() => {});
   }
 
-
-/* ── RENDER RESULTS ── */
-function renderResults(data) {
-  currentScanId = data.id || null;
-
-  // Header
-  document.getElementById('resultTarget').textContent = data.target;
-  const profileBadge = document.getElementById('resultProfile');
-}
-  if (data.profile) {
-    profileBadge.textContent = data.profile;
-    profileBadge.classList.remove('hidden');
-  } 
-  else {
-    profileBadge.textContent = '';
-    profileBadge.classList.add('hidden');
-  }
-  renderGrade(data.risk);
-  document.getElementById('reportBtn').classList.toggle('hidden', !currentScanId);
-  document.getElementById('resultTs').textContent = formatTs(data.timestamp);
-
-  // Risk pill strip
-  const strip = document.getElementById('resultRiskStrip');
-  strip.innerHTML = '';
-  const riskCounts = countRisks(data.ports || []);
-  for (const [level, count] of Object.entries(riskCounts)) {
-    if (count > 0) {
-      const pill = document.createElement('span');
-      pill.className = `risk-pill ${level}`;
-      pill.textContent = `${count} ${level}`;
-      strip.appendChild(pill);
-    }
-  }
-
-  // Summary
-  document.getElementById('summaryText').textContent =
-    data.summary || 'No summary available.';
-
-  // Ports table
-  renderPortsTable(data.ports || []);
-
-  // SSL / HTTP findings
-  renderFindings(data.ports || []);
-
-  // Compliance / framework mapping
-  renderCompliance(data.compliance || []);
-
-  // Credential & lockout checks
-  renderCredChecks(data.credential_checks);
-
-  // Raw output
-  const rawLines = buildRawOutput(data.ports || []);
-  document.getElementById('rawOutput').textContent =
-    rawLines.length ? rawLines.join('\n') : 'No raw NSE output.';
-
-  resultsSection.classList.remove('hidden');
-  resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.querySelectorAll('[data-nav]').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.nav === navActive));
 }
 
-function countRisks(ports) {
-  const counts = { high: 0, medium: 0, low: 0 };
-  for (const p of ports) {
-    if (p.risk in counts) counts[p.risk]++;
-  }
-  return counts;
-}
+// ══════════════════════ AUTH SCREEN ══════════════════════
+let authMode = 'login';   // login | register | forgot
 
-/* ── PORTS TABLE ── */
-function renderPortsTable(ports) {
-  const tbody = document.getElementById('portsBody');
-  const count = document.getElementById('portCount');
-  tbody.innerHTML = '';
-
-  const open = ports.filter(p => p.state === 'open');
-  count.textContent = `${open.length} open`;
-}
-
-  if (!open.length) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="5" style="color:var(--muted);text-align:center;padding:20px;">No open ports found.</td>`;
-    tbody.appendChild(tr);
-    return;
-  }
-
-  for (const port of open) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><span class="port-number">${port.port}</span></td>
-      <td><span class="state-badge open">open</span></td>
-      <td>${escHtml(port.service || '—')}</td>
-      <td><span class="version-text">${escHtml(port.version || '—')}</span></td>
-      <td><span class="risk-dot ${port.risk || 'low'}">${port.risk || 'low'}</span></td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-/* ── SSL / HTTP FINDINGS ── */
-function renderFindings(ports) {
-  const sslEl  = document.getElementById('sslFindings');
-  const httpEl = document.getElementById('httpFindings');
-  const sslItems  = [];
-  const httpItems = [];
-}
-
-  for (const port of ports) {
-    if (!port.scripts) continue;
-    const scripts = port.scripts;
-
-    // SSL findings
-    if (scripts['ssl-cert']) {
-      sslItems.push(makeFinding('🔒', `SSL Cert on :${port.port}`, scripts['ssl-cert']));
-    }
-    if (scripts['ssl-enum-ciphers']) {
-      const weak = /weak|rc4|des|3des|export/i.test(scripts['ssl-enum-ciphers']);
-      sslItems.push(makeFinding(
-        weak ? '⚠' : '✓',
-        `Ciphers on :${port.port}`,
-        weak ? 'Weak ciphers detected — see raw output.' : 'No obviously weak ciphers.'
-      ));
-    }
-    if (scripts['ssl-dh-params']) {
-      const vuln = /logjam|vulnerable|weak/i.test(scripts['ssl-dh-params']);
-      sslItems.push(makeFinding(
-        vuln ? '⚠' : '✓',
-        `DH Params on :${port.port}`,
-        vuln ? 'Weak DH params (Logjam risk).' : 'DH parameters look acceptable.'
-      ));
-    }
-
-    // HTTP findings
-    if (scripts['http-security-headers']) {
-      const missing = extractMissingHeaders(scripts['http-security-headers']);
-      if (missing.length) {
-        httpItems.push(makeFinding('⚠', `Missing headers on :${port.port}`, missing.join(', ')));
-      } else {
-        httpItems.push(makeFinding('✓', `Headers on :${port.port}`, 'Security headers present.'));
-      }
-    }
-    if (scripts['http-methods']) {
-      const dangerous = /PUT|DELETE|TRACE|CONNECT/i.exec(scripts['http-methods']);
-      if (dangerous) {
-        httpItems.push(makeFinding('⚠', `Dangerous method on :${port.port}`, `${dangerous[0]} is allowed — consider disabling.`));
-      }
-    }
-    if (scripts['http-auth-finder']) {
-      httpItems.push(makeFinding('ℹ', `Auth on :${port.port}`, scripts['http-auth-finder'].split('\n')[0]));
-    }
-
-    // Vuln scripts
-    for (const [key, val] of Object.entries(scripts)) {
-      if (key.startsWith('http-vuln-') && val && /VULNERABLE/i.test(val)) {
-        httpItems.push(makeFinding('🚨', `${key} on :${port.port}`, 'VULNERABLE — see raw output for details.'));
-      }
-    }
-  }
-
-  sslEl.innerHTML  = sslItems.length  ? sslItems.join('')  : '<p class="finding-empty">No SSL data in this scan.</p>';
-  httpEl.innerHTML = httpItems.length ? httpItems.join('') : '<p class="finding-empty">No HTTP header data in this scan.</p>';
-}
-
-function makeFinding(icon, key, text) {
-  return `
-    <div class="finding-item">
-      <span class="finding-icon">${icon}</span>
-      <span class="finding-text">
-        <span class="finding-key">${escHtml(key)}</span>
-        ${escHtml(text)}
-      </span>
-    </div>
-  `;
-}
-
-function extractMissingHeaders(raw) {
-  const known = ['Content-Security-Policy','Strict-Transport-Security','X-Frame-Options','X-Content-Type-Options','Referrer-Policy','Permissions-Policy'];
-  return known.filter(h => raw.toLowerCase().includes('missing') && raw.includes(h));
-}
-
-/* ── RISK GRADE ── */
-function renderGrade(risk) {
-  const el = document.getElementById('resultGrade');
-  const grade = risk && risk.grade;
-  if (!grade) {
-    el.textContent = '';
-    el.classList.add('hidden');
-    el.className = 'grade-badge hidden';
-    return;
-  }
-  const score = (risk.score !== undefined && risk.score !== null) ? ` · ${risk.score}/100` : '';
-  el.textContent = `${grade}${score}`;
-  el.className = `grade-badge grade-${grade}`;
-  el.classList.remove('hidden');
-}
-
-/* ── COMPLIANCE / FRAMEWORK MAPPING ── */
-function renderCompliance(tags) {
-  const list = document.getElementById('complianceList');
-  const count = document.getElementById('complianceCount');
-
-  count.textContent = tags.length ? `${tags.length} mapped` : '';
-
-  if (!tags.length) {
-    list.innerHTML = '<p class="finding-empty">No framework mappings for this scan.</p>';
-    return;
-  }
-
-  list.innerHTML = tags.map(tag => `
-    <div class="compliance-item">
-      <span class="compliance-cat">${escHtml(tag.category)}</span>
-      <div class="compliance-body">
-        <span class="compliance-name">${escHtml(tag.name)}</span>
-        <ul class="compliance-evidence">
-          ${tag.evidence.map(e => `<li>${escHtml(e)}</li>`).join('')}
-        </ul>
-      </div>
-    </div>
-  `).join('');
-}
-
-/* ── CREDENTIAL & LOCKOUT CHECKS ── */
-const VERDICT_META = {
-  none_observed: { icon: '🚨', cls: 'verdict-bad',  label: 'No rate limiting observed' },
-  throttled:     { icon: '✓',  cls: 'verdict-ok',   label: 'Throttled' },
-  lockout:       { icon: '✓',  cls: 'verdict-ok',   label: 'Lockout protection' },
-  captcha:       { icon: '✓',  cls: 'verdict-ok',   label: 'CAPTCHA protection' }
-};
-
-function renderCredChecks(cc) {
-  const card = document.getElementById('credCard');
-  const list = document.getElementById('credFindings');
-  const count = document.getElementById('credCount');
-
-  if (!cc || !cc.enabled) {
-    card.classList.add('hidden');
-    list.innerHTML = '';
-    count.textContent = '';
-    return;
-  }
-
-  const items = [];
-  for (const f of cc.http_login_findings || []) {
-    const meta = VERDICT_META[f.verdict] || { icon: '?', cls: '', label: f.verdict };
-    items.push(`
-      <div class="finding-item">
-        <span class="finding-icon">${meta.icon}</span>
-        <span class="finding-text">
-          <span class="verdict-chip ${meta.cls}">${escHtml(meta.label)}</span>
-          <span class="finding-key">${escHtml(f.url)}</span>
-          ${escHtml(f.detail)}
-        </span>
-      </div>`);
-  }
-  for (const d of cc.db_findings || []) {
-    items.push(`
-      <div class="finding-item">
-        <span class="finding-icon">${d.vulnerable ? '🚨' : '✓'}</span>
-        <span class="finding-text">
-          ${d.vulnerable ? '<span class="verdict-chip verdict-bad">Vulnerable</span>' : '<span class="verdict-chip verdict-ok">OK</span>'}
-          <span class="finding-key">Port ${escHtml(d.port)} · ${escHtml(d.check)}</span>
-          ${escHtml(d.detail)}
-        </span>
-      </div>`);
-  }
-
-  const total = (cc.http_login_findings || []).length + (cc.db_findings || []).length;
-  count.textContent = total ? `${total} checked` : '';
-  list.innerHTML = total
-    ? items.join('')
-    : '<p class="finding-empty">Checks ran but no login endpoints or credential-protected services were found to test.</p>';
-  if (cc.error) {
-    list.innerHTML += `<p class="finding-empty">Partial failure: ${escHtml(cc.error)}</p>`;
-  }
-  card.classList.remove('hidden');
-}
-
-/* ── SCAN COMPARISON ── */
-async function onCompareClick(id) {
-  const scan = lastScans.find(s => s.id === id);
-  const target = scan ? scan.target : '';
-
-  if (!diffBaseline) {
-    diffBaseline = { id, target };
-    markBaselineRow(id);
-    showInfo(`Baseline set: scan #${id}. Now click Compare on another scan of ${target}.`);
-    return;
-  }
-
-  if (diffBaseline.id === id) {
-    clearDiff();
-    showInfo('Comparison cancelled — baseline cleared.');
-    return;
-  }
-
-  try {
-    const res = await fetch(`${API_BASE}/api/history/${diffBaseline.id}/diff/${id}`);
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || `Server returned ${res.status}`);
-    renderDiff(body);
-    clearBaselineRow();
-    diffBaseline = { id, target };
-    markBaselineRow(id);
-  } catch (err) {
-    clearDiff();
-    showError(err.message || 'Could not compare those scans.');
-  }
-}
-
-function markBaselineRow(id) {
-  clearBaselineRow();
-  const tr = document.querySelector(`#historyBody tr[data-scanid="${id}"]`);
-  if (tr) tr.classList.add('baseline-row');
-}
-
-function clearBaselineRow() {
-  document.querySelectorAll('#historyBody tr.baseline-row')
-    .forEach(tr => tr.classList.remove('baseline-row'));
-}
-
-function renderDiff(diff) {
-  const section = document.getElementById('diffSection');
-  const body = document.getElementById('diffBody');
-
-  let deltaHtml = '<p class="finding-empty">Score not comparable — one of these scans predates scoring.</p>';
-  if (diff.score_delta !== null && diff.score_delta !== undefined) {
-    const d = diff.score_delta;
-    const dir = d > 0 ? { sym: '▲', cls: 'delta-up', word: 'improved' }
-              : d < 0 ? { sym: '▼', cls: 'delta-down', word: 'declined' }
-              :         { sym: '■', cls: 'delta-flat', word: 'unchanged' };
-    deltaHtml = `
-      <span class="score-delta ${dir.cls}">
-        <span class="delta-sym">${dir.sym}</span>
-        ${escHtml(diff.before.risk_score)} → ${escHtml(diff.after.risk_score)}
-        (${d > 0 ? '+' : ''}${d})
-      </span>
-      <span class="delta-word ${dir.cls}">Risk score ${dir.word}</span>`;
-    if (diff.grade_change) {
-      deltaHtml += `<span class="grade-change">Grade ${escHtml(diff.grade_change.from)} → ${escHtml(diff.grade_change.to)}</span>`;
-    }
-  }
-
-  const portPill = p => `
-    <span class="diff-port" title="${escHtml(p.version || '')}">
-      <strong>${escHtml(p.port)}</strong> ${escHtml(p.service || '—')}
-    </span>`;
-
-  const openedHtml  = diff.opened_ports.length
-    ? diff.opened_ports.map(portPill).join('')
-    : '<p class="finding-empty">None.</p>';
-  const closedHtml  = diff.closed_ports.length
-    ? diff.closed_ports.map(portPill).join('')
-    : '<p class="finding-empty">None.</p>';
-
-  let changedHtml = '<p class="finding-empty">No service or version changes.</p>';
-  if (diff.changed_ports.length) {
-    changedHtml = `
-      <table class="ports-table">
-        <thead><tr><th>Port</th><th>Before</th><th>After</th></tr></thead>
-        <tbody>
-          ${diff.changed_ports.map(c => `
-            <tr>
-              <td><span class="port-number">${escHtml(c.port)}</span></td>
-              <td>${escHtml(c.from.service || '—')} <span class="version-text">${escHtml(c.from.version || '')}</span></td>
-              <td>${escHtml(c.to.service || '—')} <span class="version-text">${escHtml(c.to.version || '')}</span></td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
-  }
-
-  const warningHtml = diff.warning
-    ? `<p class="diff-warning">⚠ ${escHtml(diff.warning)}</p>`
-    : '';
-
-  body.innerHTML = `
-    <div class="diff-meta">
-      <span class="mono">#${escHtml(diff.before.id)} (${formatTs(diff.before.timestamp)})</span>
-      <span class="diff-arrow">→</span>
-      <span class="mono">#${escHtml(diff.after.id)} (${formatTs(diff.after.timestamp)})</span>
-      <span class="profile-badge">${escHtml(diff.target)}</span>
-    </div>
-    ${warningHtml}
-    <div class="diff-score">${deltaHtml}</div>
-    <div class="diff-grid">
-      <div>
-        <h4 class="diff-heading opened-h">Opened ports (${diff.opened_ports.length})</h4>
-        ${openedHtml}
-      </div>
-      <div>
-        <h4 class="diff-heading closed-h">Closed ports (${diff.closed_ports.length})</h4>
-        ${closedHtml}
-      </div>
-    </div>
-    <h4 class="diff-heading">Service / version changes</h4>
-    ${changedHtml}
-  `;
-
-  section.classList.remove('hidden');
-  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function clearDiff() {
-  diffBaseline = null;
-  clearBaselineRow();
-  document.getElementById('diffSection').classList.add('hidden');
-}
-
-/* ── REPORT ── */
-function openCurrentReport() {
-  if (currentScanId) openReport(currentScanId);
-}
-
-function openReport(id) {
-  window.open(`${API_BASE}/api/report/${id}`, '_blank');
-}
-
-/* ── RAW OUTPUT ── */
-function buildRawOutput(ports) {
-  const lines = [];
-  for (const port of ports) {
-    if (!port.scripts || !Object.keys(port.scripts).length) continue;
-    lines.push(`── PORT ${port.port} ─────────────────────`);
-    for (const [key, val] of Object.entries(port.scripts)) {
-      if (val) {
-        lines.push(`\n[${key}]`);
-        lines.push(val);
-      }
-    }
-    lines.push('');
-  }
-  return lines;
-}
-
-/* ── RAW TOGGLE ── */
-function toggleRaw() {
-  const body = document.getElementById('rawBody');
-  const icon = document.getElementById('rawToggleIcon');
-  if (body.classList.contains('hidden')) {
-    body.classList.remove('hidden');
-    icon.textContent = '▾ collapse';
-  } 
-  else {
-    body.classList.add('hidden');
-    icon.textContent = '▸ expand';
-  }
-}
-
-/* ── HISTORY ── */
-async function loadHistory() {
-  try {
-    const res = await fetch(`${API_BASE}/api/history`);
-    if (!res.ok) return;
-    const scans = await res.json();
-    renderHistory(scans);
-  } 
-  catch {
-    // History load failure is non-critical — just show empty state
-    renderHistory([]);
-  }
-}
-
-function renderHistory(scans) {
-  const tbody  = document.getElementById('historyBody');
-  const hcount = document.getElementById('historyCount');
-  const empty  = document.getElementById('historyEmpty');
-
-  tbody.innerHTML = '';
-  lastScans = scans;
-  hcount.textContent = `${scans.length} scan${scans.length !== 1 ? 's' : ''}`;
-
-  if (!scans.length) {
-    empty.classList.remove('hidden');
-    return;
-  }
-  empty.classList.add('hidden');
-
-  for (const scan of scans) {
-    const tr = document.createElement('tr');
-    tr.dataset.scanid = scan.id;
-    const gradeCell = scan.risk_grade
-      ? `<span class="grade-badge grade-${escHtml(scan.risk_grade)}">${escHtml(scan.risk_grade)}</span>`
-      : '<span class="version-text">—</span>';
-    tr.innerHTML = `
-      <td class="history-id">#${scan.id}</td>
-      <td class="history-target">${escHtml(scan.target)}</td>
-      <td><span class="profile-badge">${escHtml(scan.profile || 'standard')}</span></td>
-      <td class="history-ts">${formatTs(scan.timestamp)}</td>
-      <td>${gradeCell}</td>
-      <td class="history-summary">${escHtml(scan.summary || '—')}</td>
-      <td>
-        <div class="history-actions">
-          <button class="load-btn" onclick="loadScanById(${scan.id})">Load</button>
-          <button class="load-btn" onclick="onCompareClick(${scan.id})">Compare</button>
-          <button class="load-btn" onclick="openReport(${scan.id})">Report</button>
+function renderAuth() {
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <div class="auth-screen">
+      <div class="auth-card">
+        <div class="auth-brand">${UI.icon('logo')}<span class="brand-name">PortWatch<span class="pro">PRO</span></span></div>
+        <p class="auth-tag">Attack-surface monitoring platform</p>
+        <div class="auth-toggle">
+          <button data-mode="login" class="${authMode === 'login' ? 'active' : ''}">Sign in</button>
+          <button data-mode="register" class="${authMode === 'register' ? 'active' : ''}">Create account</button>
         </div>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  }
+        <div id="authError"></div>
+        <form id="authForm">
+          <div class="field ${authMode === 'login' ? 'hidden' : ''}">
+            <label>Full name</label><input class="input" id="aName" autocomplete="name"/>
+          </div>
+          <div class="field"><label>Email</label>
+            <input class="input" id="aEmail" type="email" autocomplete="email" placeholder="you@company.com"/></div>
+          <div class="field"><label>Password</label>
+            <input class="input" id="aPassword" type="password" autocomplete="${authMode === 'login' ? 'current-password' : 'new-password'}" placeholder="${authMode === 'register' ? 'At least 8 characters' : ''}"/></div>
+          <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;margin-top:6px;">
+            ${authMode === 'login' ? 'Sign in' : 'Create account'}
+          </button>
+        </form>
+        ${authMode === 'login' ? '<p class="auth-foot" style="margin-top:10px;"><a data-forgot style="cursor:pointer;color:var(--accent);">Forgot your password?</a></p>' : ''}
+        <p class="auth-foot">Only scan systems you own or have explicit written permission to test.<br/>Unauthorised scanning is illegal.</p>
+      </div>
+    </div>`;
+
+  document.querySelectorAll('[data-mode]').forEach(btn =>
+    btn.onclick = () => { authMode = btn.dataset.mode; renderAuth(); });
+  const forgot = document.querySelector('[data-forgot]');
+  if (forgot) forgot.onclick = renderForgot;
+
+  document.getElementById('authForm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const email = document.getElementById('aEmail').value.trim();
+    const password = document.getElementById('aPassword').value;
+    const name = (document.getElementById('aName') || {}).value?.trim();
+    const errBox = document.getElementById('authError');
+    errBox.innerHTML = '';
+
+    try {
+      const res = authMode === 'login'
+        ? await API.login({ email, password })
+        : await API.register({ email, name, password });
+      API.setSession(res);
+      // Fresh shell after auth.
+      document.getElementById('root').innerHTML = '';
+      location.hash = 'dashboard';
+      route();
+      UI.toast(`Welcome, ${res.user.name}`, 'success');
+    } catch (err) {
+      errBox.innerHTML = `<div class="auth-error">${UI.esc(err.message)}</div>`;
+    }
+  };
 }
 
-async function loadScanById(id) {
-  try {
-    const res = await fetch(`${API_BASE}/api/history/${id}`);
-    if (!res.ok) throw new Error('Not found');
-    const data = await res.json();
-    renderResults(data);
-  } 
-  catch (err) {
-    showError('Could not load scan #' + id);
-  }
+function authCard(inner) {
+  return `
+    <div class="auth-screen">
+      <div class="auth-card">
+        <div class="auth-brand">${UI.icon('logo')}<span class="brand-name">PortWatch<span class="pro">PRO</span></span></div>
+        ${inner}
+      </div>
+    </div>`;
 }
 
-/* ── ERROR TOAST ── */
-let toastTimer;
-function showToast(msg, type = 'error') {
-  toastMsg.textContent = msg;
-  errorToast.classList.remove('hidden');
-  errorToast.classList.toggle('toast--info', type === 'info');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => errorToast.classList.add('hidden'), 5000);
+function renderForgot() {
+  const root = document.getElementById('root');
+  root.innerHTML = authCard(`
+    <p class="auth-tag">Reset your password</p>
+    <div id="authError"></div>
+    <form id="forgotForm">
+      <div class="field"><label>Email</label>
+        <input class="input" id="fEmail" type="email" autocomplete="email" placeholder="you@company.com"/></div>
+      <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;margin-top:6px;">Send reset link</button>
+    </form>
+    <p class="auth-foot" style="margin-top:10px;"><a data-back style="cursor:pointer;color:var(--accent);">Back to sign in</a></p>`);
+  root.querySelector('[data-back]').onclick = () => { authMode = 'login'; renderAuth(); };
+  root.querySelector('#forgotForm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const email = root.querySelector('#fEmail').value.trim();
+    const errBox = root.querySelector('#authError');
+    try {
+      const res = await API.forgotPassword(email);
+      let extra = '';
+      if (res.dev_reset_token) {
+        // Development without SMTP: the server hands the token back so the flow is usable.
+        extra = ` No mail server is configured, so here is your link: <a href="#reset/${UI.esc(res.dev_reset_token)}" style="color:var(--accent);">open reset form</a>.`;
+      }
+      errBox.innerHTML = `<div class="auth-error" style="color:var(--low);">${UI.esc(res.message)}${extra}</div>`;
+    } catch (err) {
+      errBox.innerHTML = `<div class="auth-error">${UI.esc(err.message)}</div>`;
+    }
+  };
 }
 
-function showError(msg) { showToast(msg, 'error'); }
-function showInfo(msg)  { showToast(msg, 'info'); }
-
-/* ── UTILS ── */
-function formatTs(ts) {
-  if (!ts) return '';
-  try {
-    return new Date(ts).toLocaleString(undefined, {
-      month: 'short', day: 'numeric', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-  } 
-  catch { return ts; }
+function renderReset(token) {
+  const root = document.getElementById('root');
+  root.innerHTML = authCard(`
+    <p class="auth-tag">Choose a new password</p>
+    <div id="authError"></div>
+    <form id="resetForm">
+      <div class="field"><label>New password</label>
+        <input class="input" id="rPass" type="password" autocomplete="new-password" placeholder="At least 8 characters"/></div>
+      <div class="field"><label>Confirm password</label>
+        <input class="input" id="rPass2" type="password" autocomplete="new-password"/></div>
+      <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;margin-top:6px;">Set password</button>
+    </form>
+    <p class="auth-foot" style="margin-top:10px;"><a data-back style="cursor:pointer;color:var(--accent);">Back to sign in</a></p>`);
+  root.querySelector('[data-back]').onclick = () => { location.hash = ''; authMode = 'login'; renderAuth(); };
+  root.querySelector('#resetForm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const p1 = root.querySelector('#rPass').value, p2 = root.querySelector('#rPass2').value;
+    const errBox = root.querySelector('#authError');
+    if (p1 !== p2) { errBox.innerHTML = '<div class="auth-error">Passwords do not match</div>'; return; }
+    try {
+      const res = await API.resetPassword(token, p1);
+      API.setSession(res);
+      root.innerHTML = '';
+      location.hash = 'dashboard';
+      route();
+      UI.toast('Password updated. You are signed in.', 'success');
+    } catch (err) {
+      errBox.innerHTML = `<div class="auth-error">${UI.esc(err.message)}</div>`;
+    }
+  };
 }
 
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
+async function logout() {
+  try { await API.logout(); } catch { /* best effort: revoke the refresh token */ }
+  API.clearSession();
+  document.getElementById('root').innerHTML = '';
+  location.hash = '';
+  renderAuth();
 }
 
-/* ── INIT ── */
-window.addEventListener('DOMContentLoaded', () => {
-  loadHistory();
-  targetInput.focus();
+// ══════════════════════ BOOT ══════════════════════
+window.addEventListener('hashchange', route);
+window.addEventListener('auth:expired', () => {
+  document.getElementById('root').innerHTML = '';
+  renderAuth();
+  UI.toast('Session expired, please sign in again', 'info');
 });
+window.addEventListener('DOMContentLoaded', route);

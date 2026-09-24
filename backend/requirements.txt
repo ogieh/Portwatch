@@ -1,3 +1,13 @@
-flask
-flask-cors
-python-nmap
+Flask>=3.0,<4.0
+Flask-Cors>=4.0
+Flask-SQLAlchemy>=3.1
+SQLAlchemy>=2.0
+alembic>=1.13
+PyJWT>=2.7
+python-nmap>=0.7
+APScheduler>=3.10,<4.0
+Werkzeug>=3.0
+# Production server (single worker + threads; see docs/DEPLOYMENT.md)
+gunicorn>=22.0
+# PostgreSQL driver; harmless when you stay on SQLite
+psycopg[binary]>=3.1

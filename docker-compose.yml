@@ -1,0 +1,80 @@
+# PortWatch Pro
+#
+#   docker compose up --build                      SQLite, single container
+#   docker compose --profile postgres up --build   adds PostgreSQL (recommended for real use)
+#
+# Required: PORTWATCH_SECRET in the environment or a .env file next to this
+# file (copy .env.example). The app refuses to start in production without it.
+
+services:
+  portwatch:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: portwatch-pro:latest
+    container_name: portwatch-pro
+    ports:
+      - "5000:5000"
+    environment:
+      PORTWATCH_ENV: "production"
+      PORTWATCH_SECRET: "${PORTWATCH_SECRET:?Set PORTWATCH_SECRET to a long random string}"
+      PORTWATCH_PUBLIC_URL: "${PORTWATCH_PUBLIC_URL:-http://localhost:5000}"
+      PORTWATCH_SCHEDULER: "1"
+      # Set to 1 to force simulated scans even though nmap is installed.
+      PORTWATCH_SIMULATE: "${PORTWATCH_SIMULATE:-0}"
+      # connect (default, unprivileged) or syn (needs the cap_add below).
+      PORTWATCH_NMAP_SCAN_TYPE: "${PORTWATCH_NMAP_SCAN_TYPE:-connect}"
+      # Leave unset for SQLite in the volume; the postgres profile overrides it.
+      PORTWATCH_DB_URI: "${PORTWATCH_DB_URI:-}"
+      # Optional email alerts / password-reset mail:
+      PORTWATCH_SMTP_HOST: "${PORTWATCH_SMTP_HOST:-}"
+      PORTWATCH_SMTP_PORT: "${PORTWATCH_SMTP_PORT:-587}"
+      PORTWATCH_SMTP_USER: "${PORTWATCH_SMTP_USER:-}"
+      PORTWATCH_SMTP_PASSWORD: "${PORTWATCH_SMTP_PASSWORD:-}"
+      PORTWATCH_SMTP_FROM: "${PORTWATCH_SMTP_FROM:-PortWatch <alerts@localhost>}"
+    # Only needed for SYN scans (PORTWATCH_NMAP_SCAN_TYPE=syn). Harmless otherwise.
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      # Persist the SQLite database across restarts.
+      - portwatch-data:/app/backend/data
+    restart: unless-stopped
+
+  db:
+    profiles: ["postgres"]
+    image: postgres:16-alpine
+    container_name: portwatch-db
+    environment:
+      POSTGRES_DB: portwatch
+      POSTGRES_USER: portwatch
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
+    volumes:
+      - portwatch-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portwatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Nightly logical backup of the PostgreSQL database into ./backups.
+  backup:
+    profiles: ["postgres"]
+    image: postgres:16-alpine
+    container_name: portwatch-backup
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
+      BACKUP_KEEP_DAYS: "${BACKUP_KEEP_DAYS:-14}"
+    volumes:
+      - ./backups:/backups
+      - ./docker/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    restart: unless-stopped
+
+volumes:
+  portwatch-data:
+  portwatch-pg:

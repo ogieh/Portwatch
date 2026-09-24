@@ -1,5 +1,13 @@
-venv/
 __pycache__/
-*.db
-.env
 *.pyc
+venv/
+.venv/
+backend/data/*.db
+backend/data/*.db-journal
+.env
+.DS_Store
+.idea/
+.coverage
+htmlcov/
+.pytest_cache/
+backups/
