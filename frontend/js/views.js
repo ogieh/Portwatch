@@ -946,7 +946,7 @@ const Views = (() => {
   }
   function errorState(msg) {
     return `<div class="empty"><h3>Something went wrong</h3><p>${e(msg)}</p>
-      <button class="btn btn-ghost" onclick="location.reload()">Reload</button></div>`;
+      <button class="btn btn-ghost" data-action="reload">Reload</button></div>`;
   }
   function emptyInline(msg) { return `<p class="finding-empty" style="padding:20px;">${e(msg)}</p>`; }
   function emptyState(iconName, title, body, actionLabel, action) {

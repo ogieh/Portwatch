@@ -1,0 +1,31 @@
+# Keep development and local artifacts out of the container image.
+**/__pycache__/
+**/*.pyc
+backend/.venv/
+backend/venv/
+venv/
+.venv/
+
+# Never ship the local development database or its journals.
+backend/data/*.db
+backend/data/*.db-*
+backend/data/*.sqlite*
+
+# Tests, CI, docs and local config are not needed at runtime.
+backend/tests/
+.github/
+docs/
+*.md
+!README.md
+
+# Secrets and local env.
+.env
+.env.*
+!.env.example
+
+# VCS and editor noise.
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp

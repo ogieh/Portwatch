@@ -255,3 +255,14 @@ window.addEventListener('auth:expired', () => {
   UI.toast('Session expired, please sign in again', 'info');
 });
 window.addEventListener('DOMContentLoaded', route);
+
+// Delegated handler for data-action hooks (keeps CSP script-src 'self': no
+// inline event handlers). Added during the hardening pass.
+document.addEventListener("click", function (ev) {
+  var el = ev.target.closest("[data-action]");
+  if (!el) return;
+  if (el.getAttribute("data-action") === "reload") {
+    ev.preventDefault();
+    location.reload();
+  }
+});

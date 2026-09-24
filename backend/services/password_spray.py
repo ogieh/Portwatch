@@ -27,8 +27,35 @@ import urllib.error
 
 SIMULATE = os.environ.get("PORTWATCH_SIMULATE", "").lower() in ("1", "true", "yes")
 
-MAX_PASSWORDS = 5
-ATTEMPT_DELAY = 2.0  # seconds between attempts
+# Safety posture. Live credential testing is the one genuinely offensive
+# capability in the platform, so it is off unless an operator deliberately
+# enables it for an engagement. When LIVE_CREDENTIAL_TESTING is not set, every
+# function here runs in simulation regardless of the caller's request. This is
+# defence in depth on top of the API's authorization gate and scope check.
+LIVE_CREDENTIAL_TESTING = os.environ.get(
+    "LIVE_CREDENTIAL_TESTING", "").lower() in ("1", "true", "yes")
+
+MAX_PASSWORDS = 5          # not brute force: a handful of common passwords only
+MAX_USERNAMES = 10         # cap accounts per run
+ATTEMPT_DELAY = 2.0        # seconds between attempts, to avoid lockout/DoS
+
+
+def _live_allowed():
+    """Live testing requires BOTH the global opt-in and that we are not in the
+    global simulate mode."""
+    return LIVE_CREDENTIAL_TESTING and not SIMULATE
+
+
+def _effective_simulate(requested):
+    """Resolve whether this call runs live or simulated. Live only happens when
+    it is both requested (simulate is explicitly False) and permitted by the
+    server posture. Anything else falls back to simulation."""
+    if requested is True:
+        return True
+    if requested is False:
+        return not _live_allowed()  # honour request only if live is permitted
+    # requested is None: default to the server posture (simulate unless live)
+    return not _live_allowed()
 
 COMMON_PASSWORDS = [
     "Password1", "Welcome1", "P@ssw0rd", "Summer2024!", "Company123",
@@ -44,11 +71,21 @@ def spray_http_login(url, usernames, passwords=None, simulate=None):
     """Spray a small set of passwords against an HTTP login form.
     Returns {"url": str, "results": [{"username": str, "password": str, "success": bool, "status": int}],
              "lockout_detected": bool, "tool": str}."""
-    use_sim = simulate if simulate is not None else SIMULATE
-    if use_sim:
+    if _effective_simulate(simulate):
         return _sim_http_spray(url, usernames)
 
+    # Defence in depth: even reaching the live path, refuse dangerous
+    # destinations. The API guards targets too, but the service must not trust
+    # its caller.
+    from core.target_guard import validate_target, TargetRejected
+    try:
+        validate_target(url, resolve=True)
+    except TargetRejected as e:
+        return {"url": url, "results": [], "lockout_detected": False,
+                "total_attempts": 0, "tool": "refused", "error": str(e)}
+
     passwords = (passwords or COMMON_PASSWORDS)[:MAX_PASSWORDS]
+    usernames = list(usernames or [])[:MAX_USERNAMES]
     results = []
     lockout = False
 
@@ -99,9 +136,13 @@ def _sim_http_spray(url, usernames):
 def check_ftp_anonymous(target, simulate=None):
     """Check if FTP allows anonymous access.
     Returns {"target": str, "anonymous_allowed": bool, "files": [str], "tool": str}."""
-    use_sim = simulate if simulate is not None else SIMULATE
-    if use_sim:
+    if _effective_simulate(simulate):
         return _sim_ftp(target)
+    from core.target_guard import validate_target, TargetRejected
+    try:
+        validate_target(target, resolve=True)
+    except TargetRejected as e:
+        return {"target": target, "anonymous_allowed": False, "files": [], "tool": "refused", "error": str(e)}
 
     import ftplib
     try:
@@ -124,11 +165,15 @@ def _sim_ftp(target):
 def check_ssh_auth(target, usernames=None, simulate=None):
     """Test SSH for common weak credentials.
     Returns {"target": str, "results": [{"username": str, "auth_methods": [str]}], "tool": str}."""
-    use_sim = simulate if simulate is not None else SIMULATE
-    if use_sim:
+    if _effective_simulate(simulate):
         return _sim_ssh(target)
+    from core.target_guard import validate_target, TargetRejected
+    try:
+        validate_target(target, resolve=True)
+    except TargetRejected as e:
+        return {"target": target, "results": [], "tool": "refused", "error": str(e)}
 
-    users = usernames or ["root", "admin", "ubuntu", "deploy"]
+    users = (usernames or ["root", "admin", "ubuntu", "deploy"])[:MAX_USERNAMES]
     results = []
     try:
         import paramiko

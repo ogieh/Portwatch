@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="PortWatch Pro: attack-surface monitoring. Discover exposed ports and services, score risk, and track posture over time." />
   <title>PortWatch Pro: Attack Surface Monitoring</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -11,11 +12,20 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <!-- Auth screen and app shell are both rendered by JS into #root -->
-  <div id="root"></div>
+  <a href="#root" class="skip-link">Skip to main content</a>
 
-  <!-- Toast host -->
-  <div id="toastHost"></div>
+  <noscript>
+    <div style="max-width:640px;margin:80px auto;padding:24px;font-family:system-ui,sans-serif;text-align:center">
+      <h1>PortWatch Pro</h1>
+      <p>This application needs JavaScript to run. Please enable JavaScript in your browser.</p>
+    </div>
+  </noscript>
+
+  <!-- Auth screen and app shell are both rendered by JS into #root -->
+  <div id="root" role="main" tabindex="-1"></div>
+
+  <!-- Toast host: polite live region so screen readers announce notifications -->
+  <div id="toastHost" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <!-- Modal host -->
   <div id="modalHost"></div>

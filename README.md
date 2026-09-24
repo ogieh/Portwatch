@@ -13,6 +13,20 @@ gate on every scan, background scan execution with cancel and timeouts, a
 full token lifecycle, password reset, API keys, an audit log, rate limiting,
 Alembic migrations, PostgreSQL support, and a CI-backed test suite.
 
+> **v2.2 hardening & quality pass.** A safe-by-default posture across the
+> platform: the authorisation gate now requires explicit approval by a second
+> user (no self-approval); a target guard refuses loopback, link-local, and
+> cloud-metadata destinations and, by default, private ranges; credential
+> spraying simulates unless deliberately enabled and needs per-run consent; a
+> strict Content-Security-Policy, HSTS, request-size limits, request IDs, a
+> readiness probe, and accessibility improvements were added. Test suite grew
+> to 130 passing. See `CHANGELOG.md` and `docs/ITERATION_LOG.md`.
+>
+> Sensitive capabilities are off until an operator opts in:
+> `LIVE_CREDENTIAL_TESTING=1` for live credential testing and
+> `ALLOW_PRIVATE_TARGETS=1` for internal ranges. Loopback and cloud-metadata
+> endpoints stay blocked regardless.
+
 ![dashboard](docs/screenshots/dashboard.png)
 
 ---
