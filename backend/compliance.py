@@ -1,16 +1,8 @@
 """
-Framework mapping for PortWatch.
-
-Maps scan findings onto OWASP Top 10 (2021) categories. This is a pure
-translation layer over findings PortWatch already detects -- no new
-scanning capability, just credibility: "this maps to A05:2021".
-
-Categories currently covered:
-    A01:2021  Broken Access Control
-    A02:2021  Cryptographic Failures
-    A05:2021  Security Misconfiguration
-    A06:2021  Vulnerable and Outdated Components
-    A07:2021  Identification and Authentication Failures
+Translate findings PortWatch already detected into OWASP Top 10 (2021)
+categories. No scanning happens here -- it's a lookup over the existing
+result dicts, kept separate so mappings can grow without touching
+scanner.py.
 """
 
 import re

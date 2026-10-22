@@ -154,79 +154,14 @@ def require_auth(fn):
     return wrapper
 
 
-# ────────────────── ROLE HIERARCHY ──────────────────
-# superadmin: app creator only. Full access, bypasses authorization checks.
-#             Cannot be assigned through the UI. Set via seed.py or direct DB.
-# admin:      team lead. Can manage users, run scans, view all projects.
-# analyst:    standard pentester. Can run scans on own projects, needs auth docs.
-# viewer:     client read-only. Can view reports but cannot run scans or recon.
-
-ROLE_HIERARCHY = {"superadmin": 100, "admin": 80, "lead": 60, "analyst": 40, "viewer": 10}
-
-
-def _role_level(role):
-    return ROLE_HIERARCHY.get(role, 0)
-
-
-def user_is_superadmin(user=None):
-    u = user or getattr(g, "user", None)
-    return u is not None and u.role == "superadmin"
-
-
-def user_can_bypass_auth(user=None):
-    """Only the superadmin (app creator) can run scans without authorization docs."""
-    return user_is_superadmin(user)
-
-
-def require_role(*allowed_roles):
-    """Decorator: require the user to have one of the listed roles."""
-    def decorator(fn):
-        @functools.wraps(fn)
-        @require_auth
-        def wrapper(*args, **kwargs):
-            if g.user.role not in allowed_roles and g.user.role != "superadmin":
-                return jsonify({"error": f"Insufficient permissions. Required role: {', '.join(allowed_roles)}"}), 403
-            return fn(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
 def require_admin(fn):
     @functools.wraps(fn)
     @require_auth
     def wrapper(*args, **kwargs):
-        if g.user.role not in ("admin", "superadmin"):
+        if g.user.role != "admin":
             return jsonify({"error": "Administrator access required"}), 403
         return fn(*args, **kwargs)
 
-    return wrapper
-
-
-def require_superadmin(fn):
-    """Only the app creator can access this endpoint."""
-    @functools.wraps(fn)
-    @require_auth
-    def wrapper(*args, **kwargs):
-        if g.user.role != "superadmin":
-            return jsonify({"error": "Superadmin access required. This action is restricted to the application owner."}), 403
-        return fn(*args, **kwargs)
-    return wrapper
-
-
-def require_pentest_auth(fn):
-    """Require either superadmin (bypasses auth) or a valid authorization document
-    reference in the request. Non-superadmin users must have the scan's project
-    linked to an approved authorization record."""
-    @functools.wraps(fn)
-    @require_auth
-    def wrapper(*args, **kwargs):
-        if user_can_bypass_auth():
-            g.auth_bypassed = True
-            return fn(*args, **kwargs)
-        if g.user.role == "viewer":
-            return jsonify({"error": "Viewers cannot run scans or recon"}), 403
-        g.auth_bypassed = False
-        return fn(*args, **kwargs)
     return wrapper
 
 

@@ -7,7 +7,6 @@
 const ROUTES = {
   dashboard: { render: (m) => Views.dashboard(m), nav: 'dashboard' },
   projects: { render: (m) => Views.projects(m), nav: 'projects' },
-  recon: { render: (m) => Views.recon(m), nav: 'recon' },
   schedules: { render: (m) => Views.schedules(m), nav: 'schedules' },
   settings: { render: (m) => Views.settings(m), nav: 'settings' },
 };
@@ -57,7 +56,6 @@ function renderShell(activeHead) {
   const navItems = [
     { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { key: 'projects', label: 'Projects', icon: 'projects' },
-    { key: 'recon', label: 'Recon', icon: 'scan' },
     { key: 'schedules', label: 'Schedules', icon: 'schedule' },
     { key: 'settings', label: 'Settings', icon: 'settings' },
   ];
@@ -255,14 +253,3 @@ window.addEventListener('auth:expired', () => {
   UI.toast('Session expired, please sign in again', 'info');
 });
 window.addEventListener('DOMContentLoaded', route);
-
-// Delegated handler for data-action hooks (keeps CSP script-src 'self': no
-// inline event handlers). Added during the hardening pass.
-document.addEventListener("click", function (ev) {
-  var el = ev.target.closest("[data-action]");
-  if (!el) return;
-  if (el.getAttribute("data-action") === "reload") {
-    ev.preventDefault();
-    location.reload();
-  }
-});

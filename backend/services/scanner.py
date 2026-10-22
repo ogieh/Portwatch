@@ -119,15 +119,7 @@ def run_scan(target, profile=DEFAULT_PROFILE, credential_checks=False, simulate=
 
     use_sim = simulate if simulate is not None else (not nmap_available())
     if use_sim:
-        # Simulation never touches the network, so the guard is not required
-        # for safety; we still normalize obvious garbage.
         return _simulate_scan(target, profile, credential_checks)
-
-    # Real scans must pass the target guard: no loopback, link-local, or
-    # cloud-metadata endpoints, and no private ranges unless explicitly
-    # enabled for an internal engagement. Raises TargetRejected on refusal.
-    from core.target_guard import validate_target
-    validate_target(target, resolve=True)
 
     return _real_scan(target, profile, credential_checks, scan_type,
                       cancel_check or _noop_cancel_check)

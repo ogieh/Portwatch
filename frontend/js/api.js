@@ -159,18 +159,5 @@ const API = (() => {
     updateChannel: (id, payload) => request(`/api/notifications/${id}`, { method: 'PATCH', body: payload }),
     deleteChannel: (id) => request(`/api/notifications/${id}`, { method: 'DELETE' }),
     testChannel: (id) => request(`/api/notifications/${id}/test`, { method: 'POST', body: {} }),
-
-    // ---- recon ----
-    reconFull: (target) => request('/api/recon/full', { method: 'POST', body: { target } }),
-    reconSubdomains: (target) => request('/api/recon/subdomains', { method: 'POST', body: { target } }),
-    reconDns: (target) => request('/api/recon/dns', { method: 'POST', body: { target } }),
-    reconWhois: (target) => request('/api/recon/whois', { method: 'POST', body: { target } }),
-    reconTech: (target) => request('/api/recon/technologies', { method: 'POST', body: { target } }),
-    reconEmail: (target) => request('/api/recon/email-security', { method: 'POST', body: { target } }),
-    reconDirs: (target) => request('/api/recon/directories', { method: 'POST', body: { target } }),
-    reconWaf: (target) => request('/api/recon/waf', { method: 'POST', body: { target } }),
-    reconTraceroute: (target) => request('/api/recon/traceroute', { method: 'POST', body: { target } }),
-    reconExploits: (scanId) => request('/api/recon/exploits', { method: 'POST', body: { scan_id: scanId } }),
-    reconExploitVersion: (version) => request('/api/recon/exploits', { method: 'POST', body: { version } }),
   };
 })();

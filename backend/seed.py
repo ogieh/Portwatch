@@ -34,12 +34,6 @@ class SeedConfig(Config):
 DEMO_EMAIL = "demo@portwatch.io"
 DEMO_PASSWORD = "demopass123"
 
-# The superadmin account - app creator only. This is the ONLY way to get
-# superadmin access. It cannot be assigned through the UI or API.
-SUPERADMIN_EMAIL = os.environ.get("PORTWATCH_SUPERADMIN_EMAIL", "admin@portwatch.io")
-SUPERADMIN_PASSWORD = os.environ.get("PORTWATCH_SUPERADMIN_PASSWORD", "superadmin123!")
-SUPERADMIN_NAME = os.environ.get("PORTWATCH_SUPERADMIN_NAME", "System Administrator")
-
 PROJECTS = [
     ("Acme Corp - External Perimeter", "Internet-facing production hosts and edge services",
      ["api.acme.com", "shop.acme.com", "vpn.acme.com", "mail.acme.com"], "*.acme.com"),
@@ -59,23 +53,11 @@ def run():
             db.session.delete(existing)
             db.session.commit()
 
-        user = User(email=DEMO_EMAIL, name="Demo Analyst", role="analyst")
+        user = User(email=DEMO_EMAIL, name="Demo Analyst", role="admin")
         user.set_password(DEMO_PASSWORD)
         db.session.add(user)
         db.session.commit()
         print(f"Created user {DEMO_EMAIL} / {DEMO_PASSWORD} (role: {user.role})")
-
-        # Create the superadmin (app creator) account
-        sa_existing = User.query.filter_by(email=SUPERADMIN_EMAIL).first()
-        if sa_existing:
-            db.session.delete(sa_existing)
-            db.session.commit()
-        superadmin = User(email=SUPERADMIN_EMAIL, name=SUPERADMIN_NAME, role="superadmin")
-        superadmin.set_password(SUPERADMIN_PASSWORD)
-        db.session.add(superadmin)
-        db.session.commit()
-        print(f"Created SUPERADMIN {SUPERADMIN_EMAIL} / {SUPERADMIN_PASSWORD} (role: superadmin)")
-        print(f"  ** This is the only account that can run pentests without authorization docs **")
 
         first_project = None
         for name, desc, targets, allowlist in PROJECTS:

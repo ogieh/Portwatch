@@ -13,16 +13,6 @@ import pytest
 import scanner
 
 
-@pytest.fixture(autouse=True)
-def _allow_private_targets(monkeypatch):
-    """These tests drive the engine with a mocked nmap against RFC1918 test
-    IPs (10.0.0.9). That is a legitimate internal-engagement context, so the
-    target guard is told to permit private ranges here. Loopback and metadata
-    remain blocked even with this flag, so the guard's core protection is still
-    exercised elsewhere."""
-    monkeypatch.setenv("ALLOW_PRIVATE_TARGETS", "1")
-
-
 class FakePortScanner:
     """Records the arguments nmap would have received and replays canned hosts."""
     calls = []

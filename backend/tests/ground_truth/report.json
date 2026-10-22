@@ -1,0 +1,468 @@
+{
+  "corpus": "C:\\Collabs\\Portwatch\\backend\\tests\\ground_truth\\corpus.json",
+  "profile": "standard",
+  "n_targets": 12,
+  "port_detection": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "true_positives": 57,
+    "false_positives": 0,
+    "false_negatives": 0
+  },
+  "vuln_flags": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "true_positives": 2,
+    "false_positives": 0,
+    "false_negatives": 0
+  },
+  "calibration": {
+    "in_band": 12,
+    "out_of_band": 0,
+    "failures": []
+  },
+  "disagreements": [
+    {
+      "target": "clean-host",
+      "expert_severity": 5,
+      "open_ports": {
+        "expected": [
+          53,
+          3389
+        ],
+        "actual": [
+          53,
+          3389
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 83,
+      "grade": "B",
+      "grade_band": "A-B",
+      "band_ok": true
+    },
+    {
+      "target": "vpn-gateway",
+      "expert_severity": 20,
+      "open_ports": {
+        "expected": [
+          21,
+          25,
+          27017
+        ],
+        "actual": [
+          21,
+          25,
+          27017
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 63,
+      "grade": "C",
+      "grade_band": "B-C",
+      "band_ok": true
+    },
+    {
+      "target": "ci-cd-pipeline",
+      "expert_severity": 25,
+      "open_ports": {
+        "expected": [
+          21,
+          143,
+          27017
+        ],
+        "actual": [
+          21,
+          143,
+          27017
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 68,
+      "grade": "C",
+      "grade_band": "B-C",
+      "band_ok": true
+    },
+    {
+      "target": "public-kiosk",
+      "expert_severity": 30,
+      "open_ports": {
+        "expected": [
+          6379,
+          8080,
+          8443
+        ],
+        "actual": [
+          6379,
+          8080,
+          8443
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 66,
+      "grade": "C",
+      "grade_band": "C-D",
+      "band_ok": true
+    },
+    {
+      "target": "dev-workstation",
+      "expert_severity": 35,
+      "open_ports": {
+        "expected": [
+          443,
+          3306,
+          8443
+        ],
+        "actual": [
+          443,
+          3306,
+          8443
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 48,
+      "grade": "D",
+      "grade_band": "C-D",
+      "band_ok": true
+    },
+    {
+      "target": "backup-server",
+      "expert_severity": 45,
+      "open_ports": {
+        "expected": [
+          25,
+          110,
+          3389,
+          8080,
+          8443
+        ],
+        "actual": [
+          25,
+          110,
+          3389,
+          8080,
+          8443
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 50,
+      "grade": "D",
+      "grade_band": "D-F",
+      "band_ok": true
+    },
+    {
+      "target": "iot-camera",
+      "expert_severity": 55,
+      "open_ports": {
+        "expected": [
+          22,
+          25,
+          80,
+          8080,
+          27017
+        ],
+        "actual": [
+          22,
+          25,
+          80,
+          8080,
+          27017
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [
+          "http-vuln-cve2021-41773"
+        ],
+        "actual": [
+          "http-vuln-cve2021-41773"
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "score": 35,
+      "grade": "F",
+      "grade_band": "D-F",
+      "band_ok": true
+    },
+    {
+      "target": "staging-box",
+      "expert_severity": 65,
+      "open_ports": {
+        "expected": [
+          21,
+          22,
+          25,
+          110,
+          143,
+          443,
+          3306
+        ],
+        "actual": [
+          21,
+          22,
+          25,
+          110,
+          143,
+          443,
+          3306
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 35,
+      "grade": "F",
+      "grade_band": "F",
+      "band_ok": true
+    },
+    {
+      "target": "mail-server",
+      "expert_severity": 70,
+      "open_ports": {
+        "expected": [
+          53,
+          443,
+          3306,
+          6379,
+          8443,
+          27017
+        ],
+        "actual": [
+          53,
+          443,
+          3306,
+          6379,
+          8443,
+          27017
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 41,
+      "grade": "D",
+      "grade_band": "D-F",
+      "band_ok": true
+    },
+    {
+      "target": "vulnerable-web",
+      "expert_severity": 85,
+      "open_ports": {
+        "expected": [
+          22,
+          110,
+          143,
+          8080,
+          8443,
+          27017
+        ],
+        "actual": [
+          22,
+          110,
+          143,
+          8080,
+          8443,
+          27017
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 36,
+      "grade": "F",
+      "grade_band": "F",
+      "band_ok": true
+    },
+    {
+      "target": "db-exposed",
+      "expert_severity": 90,
+      "open_ports": {
+        "expected": [
+          22,
+          23,
+          53,
+          143,
+          443,
+          8080,
+          8443
+        ],
+        "actual": [
+          22,
+          23,
+          53,
+          143,
+          443,
+          8080,
+          8443
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [
+          "http-vuln-cve2021-41773"
+        ],
+        "actual": [
+          "http-vuln-cve2021-41773"
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "score": 20,
+      "grade": "F",
+      "grade_band": "F",
+      "band_ok": true
+    },
+    {
+      "target": "legacy-win",
+      "expert_severity": 95,
+      "open_ports": {
+        "expected": [
+          21,
+          23,
+          110,
+          443,
+          3306,
+          3389,
+          6379
+        ],
+        "actual": [
+          21,
+          23,
+          110,
+          443,
+          3306,
+          3389,
+          6379
+        ],
+        "missing": [],
+        "extra": []
+      },
+      "vuln_flags": {
+        "expected": [],
+        "actual": [],
+        "missing": [],
+        "extra": []
+      },
+      "score": 0,
+      "grade": "F",
+      "grade_band": "F",
+      "band_ok": true
+    }
+  ],
+  "rank_calibration": {
+    "spearman": -0.9108,
+    "inversions": [
+      {
+        "more_severe": "vpn-gateway",
+        "more_severe_score": 63,
+        "less_severe": "ci-cd-pipeline",
+        "less_severe_score": 68,
+        "gap": 5
+      },
+      {
+        "more_severe": "vpn-gateway",
+        "more_severe_score": 63,
+        "less_severe": "public-kiosk",
+        "less_severe_score": 66,
+        "gap": 3
+      },
+      {
+        "more_severe": "dev-workstation",
+        "more_severe_score": 48,
+        "less_severe": "backup-server",
+        "less_severe_score": 50,
+        "gap": 2
+      },
+      {
+        "more_severe": "iot-camera",
+        "more_severe_score": 35,
+        "less_severe": "mail-server",
+        "less_severe_score": 41,
+        "gap": 6
+      },
+      {
+        "more_severe": "iot-camera",
+        "more_severe_score": 35,
+        "less_severe": "vulnerable-web",
+        "less_severe_score": 36,
+        "gap": 1
+      },
+      {
+        "more_severe": "staging-box",
+        "more_severe_score": 35,
+        "less_severe": "mail-server",
+        "less_severe_score": 41,
+        "gap": 6
+      },
+      {
+        "more_severe": "staging-box",
+        "more_severe_score": 35,
+        "less_severe": "vulnerable-web",
+        "less_severe_score": 36,
+        "gap": 1
+      }
+    ],
+    "inversion_count": 7,
+    "note": "Spearman is computed between expert severity and risk score, so a strongly NEGATIVE value is the expected sign: a more severe host must score lower. Inversions are pairs where that ordering breaks. They are a known limitation of the count-based model (it weighs port count, not service criticality), not a corpus error."
+  }
+}

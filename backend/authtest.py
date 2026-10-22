@@ -9,10 +9,11 @@ Opt-in module (never runs unless explicitly requested per scan):
   3. Summarises DB credential findings produced by opt-in NSE scripts
      (mysql-empty-password etc.) into plain verdicts.
 
-Honesty rules baked in:
-  - "none_observed" means "nothing seen within N probes", never "unlimited".
-  - Any failure of this module degrades to empty findings; it can never
-    invalidate the main scan results.
+Two ground rules:
+  - "none_observed" means "nothing seen within N probes". It never
+    means unlimited -- we only sent five attempts.
+  - if this module blows up, findings come back empty/partial. it can
+    never take the main scan results down with it.
 """
 
 import os

@@ -9,18 +9,6 @@ import sqlalchemy as sa
 from conftest import make_app
 
 
-def _head_revision():
-    """The current head revision, derived from the migration scripts so these
-    tests do not need updating each time a migration is added."""
-    from alembic.config import Config as AlembicConfig
-    from alembic.script import ScriptDirectory
-    import os
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    cfg = AlembicConfig()
-    cfg.set_main_option("script_location", os.path.join(here, "migrations"))
-    return ScriptDirectory.from_config(cfg).get_current_head()
-
-
 def _legacy_db(path):
     """Create the exact 2.0 schema (what the old create_all produced) plus a row."""
     engine = sa.create_engine(f"sqlite:///{path}")
@@ -63,7 +51,7 @@ def test_legacy_database_is_stamped_and_upgraded():
         cols = {c["name"] for c in insp.get_columns("scans")}
         assert {"status", "authorised", "started_at", "requested_by"} <= cols
         with db.engine.connect() as conn:
-            assert current_revision(conn) == _head_revision()
+            assert current_revision(conn) == "0002_hardening"
         # Back-fill semantics.
         s = db.session.get(Scan, 1)
         assert s.status == "completed" and s.authorised is False
@@ -93,7 +81,7 @@ def test_downgrade_and_upgrade_round_trip(app):
             assert current_revision(conn) == "0001_baseline"
             assert "audit_log" not in sa.inspect(conn).get_table_names()
             command.upgrade(cfg, "head")
-            assert current_revision(conn) == _head_revision()
+            assert current_revision(conn) == "0002_hardening"
 
 
 def test_production_refuses_default_secret():

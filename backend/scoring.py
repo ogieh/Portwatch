@@ -1,16 +1,13 @@
 """
-Risk scoring for PortWatch.
+Risk score: start at 100, subtract a fixed weight per finding. Bands
+are A >= 90, B >= 75, C >= 60, D >= 40, F below that.
 
-Deterministic and explainable: every scan starts at 100 and loses points
-for each finding, with fixed weights. The number shown on screen can
-always be justified line-by-line in a client conversation.
+The weights live right under this docstring on purpose - when someone
+asks "why 76?", every deduction should trace back to a constant here.
 
-Score bands:
-    A >= 90    B >= 75    C >= 60    D >= 40    F < 40
-
-Note: "quick" profile scans skip NSE scripts entirely, so their score can
-only see port-level exposure. Compare scores between scans of the same
-profile (the diff feature warns about profile mismatches).
+One caveat: quick-profile scans skip NSE scripts, so their score only
+sees port exposure. Only compare scores within the same profile (the
+diff endpoint warns when profiles differ).
 """
 
 import re
@@ -71,11 +68,8 @@ def _script_output(port, name):
 
 
 def compute_risk(ports, credential_checks=None):
-    """
-    Returns {"score": int 0-100, "grade": str, "breakdown": [...]}
-    where breakdown lists every deduction so the score is auditable.
-    credential_checks is the opt-in findings dict from authtest (optional).
-    """
+    # returns {"score": 0-100, "grade": str, "breakdown": [each deduction]}
+    # credential_checks (optional) is the opt-in dict from authtest.py
     breakdown = []
     open_ports = [p for p in ports if p.get("state") == "open"]
 

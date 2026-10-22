@@ -121,7 +121,7 @@ class Config:
 
     # ---- App metadata (surfaced in reports / UI) ----
     APP_NAME = "PortWatch Pro"
-    APP_VERSION = "2.2.0"
+    APP_VERSION = "2.1.0"
 
 
 def validate(config):
