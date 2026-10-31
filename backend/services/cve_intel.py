@@ -58,17 +58,21 @@ VERSION_CVES = [
                        "package source (>= 3.0). Audit the host for compromise.",
     },
     {
-        "match": re.compile(r"OpenSSH\s*7\.[0-4]", re.I),
+        # Fixed in OpenSSH 7.4, so the vulnerable range is 7.0-7.3, not 7.4.
+        "match": re.compile(r"OpenSSH\s*7\.[0-3](?!\d)", re.I),
         "cve": ["CVE-2016-10009", "CVE-2016-10012"],
         "title": "OpenSSH < 7.4 agent / privilege-separation flaws",
-        "severity": "medium", "cvss": 7.5,
+        "severity": "high", "cvss": 7.5,
         "remediation": "Upgrade OpenSSH to 8.x or later. Disable agent forwarding where not required.",
     },
     {
-        "match": re.compile(r"(Apache httpd|Apache)\s*2\.4\.(2\d|3\d|4[0-9])\b", re.I),
+        # CVE-2021-40438 affects httpd up to and including 2.4.48; it is FIXED
+        # in 2.4.49, so the upper bound is 48, not 49. (Validated against NVD by
+        # tests/cve_validation.)
+        "match": re.compile(r"(Apache httpd|Apache)\s*2\.4\.(2\d|3\d|4[0-8])\b", re.I),
         "cve": ["CVE-2021-40438"],
-        "title": "Apache httpd < 2.4.49 mod_proxy SSRF",
-        "severity": "high", "cvss": 9.0,
+        "title": "Apache httpd <= 2.4.48 mod_proxy SSRF",
+        "severity": "critical", "cvss": 9.0,
         "remediation": "Upgrade Apache httpd to 2.4.49+ (ideally the latest 2.4.x). Review mod_proxy config.",
     },
     {
@@ -101,7 +105,9 @@ VERSION_CVES = [
         "remediation": "Upgrade Exim to 4.92 or later.",
     },
     {
-        "match": re.compile(r"ProFTPD\s*1\.3\.5", re.I),
+        # 1.3.5 is vulnerable; 1.3.5a/1.3.5b are the fixes, so exclude a trailing
+        # letter or digit after "1.3.5".
+        "match": re.compile(r"ProFTPD\s*1\.3\.5(?![0-9A-Za-z])", re.I),
         "cve": ["CVE-2015-3306"],
         "title": "ProFTPD 1.3.5 mod_copy arbitrary file read/write",
         "severity": "critical", "cvss": 10.0,

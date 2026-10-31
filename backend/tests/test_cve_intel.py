@@ -13,7 +13,7 @@ def port(number, service, version, state="open", scripts=None):
 
 @pytest.mark.parametrize("banner,cve", [
     ("vsftpd 2.3.4", "CVE-2011-2523"),
-    ("OpenSSH 7.4", "CVE-2016-10009"),
+    ("OpenSSH 7.3", "CVE-2016-10009"),
     ("OpenSSH 7.0p1", "CVE-2016-10009"),
     ("Apache httpd 2.4.29", "CVE-2021-40438"),
     ("Apache httpd 2.4.48", "CVE-2021-40438"),
@@ -35,9 +35,10 @@ def test_version_regex_matches_vulnerable_banner(banner, cve):
 
 
 @pytest.mark.parametrize("banner", [
-    "vsftpd 3.0.3", "OpenSSH 8.9p1", "OpenSSH 9.6p1", "Apache httpd 2.4.52",
-    "Apache httpd 2.4.51", "nginx 1.25.3", "nginx 1.21.0", "MySQL 8.0.33",
-    "Redis 7.0.11", "Redis 6.2.0", "Exim 4.94", "ProFTPD 1.3.6", "Pure-FTPd",
+    "vsftpd 3.0.3", "OpenSSH 7.4", "OpenSSH 8.9p1", "OpenSSH 9.6p1",
+    "Apache httpd 2.4.49", "Apache httpd 2.4.52", "Apache httpd 2.4.51",
+    "nginx 1.25.3", "nginx 1.21.0", "MySQL 8.0.33", "Redis 7.0.11",
+    "Redis 6.2.0", "Exim 4.94", "ProFTPD 1.3.5a", "ProFTPD 1.3.6", "Pure-FTPd",
 ])
 def test_version_regex_does_not_match_patched_banner(banner):
     findings = cve_intel.enrich([port(9999, "svc", banner)])
