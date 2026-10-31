@@ -58,6 +58,16 @@ input, select, textarea { font-family: inherit; }
 .hidden { display: none !important; }
 .mono { font-family: var(--mono); }
 
+/* Skip link: visually hidden until focused, then pinned top-left. */
+.skip-link {
+  position: fixed; top: 8px; left: 8px; z-index: 400;
+  background: var(--accent); color: #04121F; font-weight: 600; font-size: 0.85rem;
+  padding: 10px 16px; border-radius: var(--radius-sm);
+  transform: translateY(-150%); transition: transform 160ms ease;
+}
+.skip-link:focus { transform: translateY(0); outline: 2px solid #fff; }
+.main:focus { outline: none; }
+
 /* ── APP SHELL ── */
 .app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
 

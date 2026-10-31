@@ -7,6 +7,8 @@
 const ROUTES = {
   dashboard: { render: (m) => Views.dashboard(m), nav: 'dashboard' },
   projects: { render: (m) => Views.projects(m), nav: 'projects' },
+  findings: { render: (m) => Views.findings(m), nav: 'findings' },
+  authorizations: { render: (m) => Views.authorizations(m), nav: 'authorizations' },
   schedules: { render: (m) => Views.schedules(m), nav: 'schedules' },
   settings: { render: (m) => Views.settings(m), nav: 'settings' },
 };
@@ -56,6 +58,8 @@ function renderShell(activeHead) {
   const navItems = [
     { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { key: 'projects', label: 'Projects', icon: 'projects' },
+    { key: 'findings', label: 'Findings', icon: 'findings' },
+    { key: 'authorizations', label: 'Authorizations', icon: 'shield' },
     { key: 'schedules', label: 'Schedules', icon: 'schedule' },
     { key: 'settings', label: 'Settings', icon: 'settings' },
   ];
@@ -64,13 +68,14 @@ function renderShell(activeHead) {
   if (!document.getElementById('appShell')) {
     root.innerHTML = `
       <div class="app" id="appShell">
+        <a class="skip-link" href="#main">Skip to main content</a>
         <aside class="sidebar">
           <div class="brand">
             <span class="brand-icon">${UI.icon('logo')}</span>
             <span class="brand-name">PortWatch<span class="pro">PRO</span></span>
           </div>
-          <nav class="nav" id="nav">
-            ${navItems.map(n => `<button class="nav-item" data-nav="${n.key}">${UI.icon(n.icon)}<span>${n.label}</span></button>`).join('')}
+          <nav class="nav" id="nav" aria-label="Primary">
+            ${navItems.map(n => `<button class="nav-item" data-nav="${n.key}" title="${n.label}" aria-label="${n.label}">${UI.icon(n.icon)}<span>${n.label}</span></button>`).join('')}
           </nav>
           <div class="sidebar-foot">
             <div class="user-chip">
@@ -84,7 +89,7 @@ function renderShell(activeHead) {
             <div class="engine-badge" id="engineBadge"><span class="engine-dot"></span> checking engine...</div>
           </div>
         </aside>
-        <main class="main"><div id="viewMount"></div></main>
+        <main class="main" id="main" tabindex="-1"><div id="viewMount"></div></main>
       </div>`;
 
     document.querySelectorAll('[data-nav]').forEach(btn =>
@@ -100,8 +105,12 @@ function renderShell(activeHead) {
     }).catch(() => {});
   }
 
-  document.querySelectorAll('[data-nav]').forEach(btn =>
-    btn.classList.toggle('active', btn.dataset.nav === navActive));
+  document.querySelectorAll('[data-nav]').forEach(btn => {
+    const on = btn.dataset.nav === navActive;
+    btn.classList.toggle('active', on);
+    if (on) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  });
 }
 
 // ══════════════════════ AUTH SCREEN ══════════════════════
@@ -121,11 +130,11 @@ function renderAuth() {
         <div id="authError"></div>
         <form id="authForm">
           <div class="field ${authMode === 'login' ? 'hidden' : ''}">
-            <label>Full name</label><input class="input" id="aName" autocomplete="name"/>
+            <label for="aName">Full name</label><input class="input" id="aName" autocomplete="name"/>
           </div>
-          <div class="field"><label>Email</label>
+          <div class="field"><label for="aEmail">Email</label>
             <input class="input" id="aEmail" type="email" autocomplete="email" placeholder="you@company.com"/></div>
-          <div class="field"><label>Password</label>
+          <div class="field"><label for="aPassword">Password</label>
             <input class="input" id="aPassword" type="password" autocomplete="${authMode === 'login' ? 'current-password' : 'new-password'}" placeholder="${authMode === 'register' ? 'At least 8 characters' : ''}"/></div>
           <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center;margin-top:6px;">
             ${authMode === 'login' ? 'Sign in' : 'Create account'}

@@ -47,9 +47,16 @@ const UI = (() => {
     settings: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 2h-4l-.5 2.5a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 22h4l.5-2.5a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.06-.4.1-.8.1-1.2z"/></svg>',
     logo: '<svg width="22" height="22" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="#38BDF8" stroke-width="1.5"/><circle cx="10" cy="10" r="4" stroke="#38BDF8" stroke-width="1.5"/><circle cx="10" cy="10" r="1.5" fill="#38BDF8"/><line x1="10" y1="2" x2="10" y2="0" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="20" x2="10" y2="18" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/><line x1="2" y1="10" x2="0" y2="10" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="10" x2="18" y2="10" stroke="#38BDF8" stroke-width="1.5" stroke-linecap="round"/></svg>',
     empty: '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 13h6"/></svg>',
+    findings: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/></svg>',
+    shield: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
   };
 
-  function icon(name) { return ICONS[name] || ''; }
+  // Icons are decorative; hide them from assistive tech and keep them out of
+  // the tab order. Interactive controls that use an icon carry their own label.
+  function icon(name) {
+    const svg = ICONS[name] || '';
+    return svg ? svg.replace('<svg ', '<svg aria-hidden="true" focusable="false" ') : '';
+  }
 
   function gradeBadge(grade, large = false) {
     if (!grade) return '<span class="pill pill-info">-</span>';
@@ -71,7 +78,10 @@ const UI = (() => {
     const el = document.createElement('div');
     const iconChar = type === 'error' ? '✕' : type === 'success' ? '✓' : 'ℹ';
     el.className = `toast toast-${type}`;
-    el.innerHTML = `<span>${iconChar}</span><span>${esc(msg)}</span>`;
+    // Announce to screen readers: errors interrupt, others wait politely.
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    el.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+    el.innerHTML = `<span aria-hidden="true">${iconChar}</span><span>${esc(msg)}</span>`;
     host.appendChild(el);
     setTimeout(() => {
       el.style.transition = 'opacity 250ms ease';
@@ -83,25 +93,48 @@ const UI = (() => {
   // ---- Modal ----
   function modal({ title, bodyHTML, footHTML = '', large = false, onMount }) {
     const host = document.getElementById('modalHost');
+    const titleId = 'modalTitle_' + Math.random().toString(36).slice(2, 8);
+    const prevFocus = document.activeElement;   // restore focus on close
     host.innerHTML = `
       <div class="modal-backdrop" data-backdrop>
-        <div class="modal ${large ? 'modal-lg' : ''}">
+        <div class="modal ${large ? 'modal-lg' : ''}" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
           <div class="modal-head">
-            <h3>${esc(title)}</h3>
-            <button class="modal-close" data-close>&times;</button>
+            <h3 id="${titleId}">${esc(title)}</h3>
+            <button class="modal-close" data-close aria-label="Close dialog">&times;</button>
           </div>
           <div class="modal-body">${bodyHTML}</div>
           ${footHTML ? `<div class="modal-foot">${footHTML}</div>` : ''}
         </div>
       </div>`;
     const backdrop = host.querySelector('[data-backdrop]');
-    const close = () => { host.innerHTML = ''; };
+    const modalEl = host.querySelector('.modal');
+    const focusable = () => modalEl.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+
+    function keyHandler(e) {
+      if (e.key === 'Escape') { close(); return; }
+      if (e.key !== 'Tab') return;
+      const f = Array.from(focusable());
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    const close = () => {
+      host.innerHTML = '';
+      document.removeEventListener('keydown', keyHandler);
+      if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (e) { /* gone */ } }
+    };
+
     host.querySelector('[data-close]').onclick = close;
     backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-    document.addEventListener('keydown', function esckey(e) {
-      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esckey); }
-    });
+    document.addEventListener('keydown', keyHandler);
     if (onMount) onMount(host, close);
+    // If onMount did not place focus inside the dialog, focus its first control.
+    if (!modalEl.contains(document.activeElement)) {
+      const f = focusable();
+      if (f.length) f[0].focus();
+    }
     return close;
   }
 
@@ -135,7 +168,9 @@ const UI = (() => {
       offset += frac;
       return el;
     }).join('');
-    return `<svg class="donut" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    const summary = segments.filter(s => s.value > 0).map(s => `${s.value} ${s.label}`).join(', ') || 'no data';
+    return `<svg class="donut" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="Grade distribution: ${esc(summary)}">
+      <title>Grade distribution: ${esc(summary)}</title>
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--surface3)" stroke-width="14"/>
       ${rings}
       <text x="${cx}" y="${cy - 2}" text-anchor="middle" fill="var(--text)" font-size="22" font-weight="700" font-family="var(--mono)">${total}</text>

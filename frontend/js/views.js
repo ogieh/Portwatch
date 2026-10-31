@@ -86,13 +86,13 @@ const Views = (() => {
   function trendChart(trend) {
     if (!trend.length) return emptyInline('No scored scans yet.');
     const max = 100;
-    return `<div class="trend-wrap"><div class="bars">
+    return `<div class="trend-wrap"><div class="bars" role="group" aria-label="Risk score trend over the last ${trend.length} scans">
       ${trend.map(t => {
         const h = Math.max(3, (t.score / max) * 150);
         const color = t.score >= 75 ? 'var(--low)' : t.score >= 60 ? 'var(--med)' : 'var(--high)';
         return `<div class="bar-col" title="${e(t.target)}: ${e(t.score)}/100">
           <span class="bar-val">${e(t.score)}</span>
-          <div class="bar" style="height:${h}px;background:${color};"></div>
+          <div class="bar" style="height:${h}px;background:${color};" aria-hidden="true"></div>
           <span class="bar-label">#${e(t.id)}</span>
         </div>`;
       }).join('')}
@@ -328,6 +328,7 @@ const Views = (() => {
           <div class="page-sub">Scan #${e(s.id)} · ${UI.fmtDate(s.timestamp)} · ${e(s.engine || 'nmap')} engine${s.trigger === 'scheduled' ? ' · scheduled' : s.trigger === 'api' ? ' · via API key' : ''}${s.duration_seconds != null ? ` · ${e(s.duration_seconds)}s` : ''}${s.authorised ? ' · authorisation recorded' : ''}</div>
         </div>
         <div style="display:flex;gap:10px;">
+          <button class="btn btn-ghost" data-genfindings title="Create tracked findings from this scan's intelligence">Generate findings</button>
           <button class="btn btn-ghost" data-report>Open report</button>
           <button class="btn btn-danger btn-sm" data-del>Delete</button>
         </div>
@@ -363,6 +364,15 @@ const Views = (() => {
 
     mount.querySelector('[data-back]').onclick = () => history.length > 1 ? history.back() : go('dashboard');
     mount.querySelector('[data-report]').onclick = () => API.openReport(s.id).catch(err => UI.toast(err.message, 'error'));
+    mount.querySelector('[data-genfindings]').onclick = async (ev) => {
+      const b = ev.currentTarget; b.disabled = true; b.textContent = 'Generating…';
+      try {
+        const r = await API.autoCreateFindings(s.id);
+        UI.toast(r.created ? `Created ${r.created} finding${r.created === 1 ? '' : 's'}` : 'No new findings to create', r.created ? 'success' : 'info');
+        if (r.created) go('findings');
+      } catch (err) { UI.toast(err.message, 'error'); }
+      finally { b.disabled = false; b.textContent = 'Generate findings'; }
+    };
     mount.querySelector('[data-del]').onclick = async () => {
       const ok = await UI.confirm({ title: 'Delete scan?', message: `Scan #${s.id} of ${s.target} will be permanently removed.`, confirmLabel: 'Delete scan' });
       if (!ok) return;
@@ -939,6 +949,214 @@ const Views = (() => {
     });
   }
 
+  // ══════════════════════ AUTHORIZATIONS ══════════════════════
+  function authStatusPill(a) {
+    let cls = { approved: 'pill-low', pending: 'pill-medium', rejected: 'pill-high' }[a.status] || 'pill-closed';
+    let label = a.status;
+    if (a.status === 'approved' && a.is_active === false) { cls = 'pill-closed'; label = 'expired'; }
+    return `<span class="pill ${cls}">${e(label)}</span>`;
+  }
+
+  async function authorizations(mount) {
+    mount.innerHTML = loading('Loading authorizations…');
+    let list, projects;
+    try { [list, projects] = await Promise.all([API.listAuthorizations(), API.listProjects()]); }
+    catch (err) { mount.innerHTML = errorState(err.message); return; }
+    const projName = (pid) => (projects.find(p => p.id === pid) || {}).name || `#${pid}`;
+    const user = API.currentUser() || {};
+    const canApprove = ['admin', 'superadmin'].includes(user.role);
+
+    mount.innerHTML = `
+      <div class="page-head">
+        <div><div class="page-title">Authorizations</div>
+          <div class="page-sub">Signed engagement consent. Active tests require an approved, in-date, in-scope authorization for the project.</div></div>
+        <button class="btn btn-primary" data-new ${projects.length ? '' : 'disabled title="Create a project first"'}>+ New authorization</button>
+      </div>
+      ${list.length ? `<div class="card"><div class="card-body no-pad"><table class="tbl">
+        <thead><tr><th>Client</th><th>Project</th><th>Allowed scope</th><th>Window</th><th>Status</th><th></th></tr></thead>
+        <tbody>${list.map(a => `<tr>
+          <td>${e(a.client_name)}${a.client_email ? `<div class="muted" style="font-size:0.74rem;">${e(a.client_email)}</div>` : ''}</td>
+          <td>${e(projName(a.project_id))}</td>
+          <td class="mono" style="font-size:0.76rem;">${(a.allowed_targets || []).map(e).join(', ') || '-'}</td>
+          <td class="muted" style="font-size:0.76rem;">${UI.fmtDate(a.start_date)}<br/>→ ${UI.fmtDate(a.end_date)}</td>
+          <td>${authStatusPill(a)}</td>
+          <td class="td-actions">
+            ${canApprove && a.status === 'pending' ? `<button class="btn btn-ghost btn-sm" data-approve="${a.id}">Approve</button>
+               <button class="btn btn-ghost btn-sm" data-reject="${a.id}">Reject</button>` : ''}
+            ${canApprove ? `<button class="btn btn-danger btn-sm" data-del="${a.id}" aria-label="Delete authorization">✕</button>` : ''}
+          </td>
+        </tr>`).join('')}</tbody></table></div></div>`
+        : emptyState('projects', 'No authorizations yet',
+          'Record a signed engagement authorization before running active tests. Non-admins create pending authorizations that an admin approves.',
+          projects.length ? 'Create authorization' : '', 'new')}
+    `;
+
+    const openModal = () => openAuthorizationModal(projects);
+    const nb = mount.querySelector('[data-new]'); if (nb && !nb.disabled) nb.onclick = openModal;
+    const eb = mount.querySelector('[data-action="new"]'); if (eb) eb.onclick = openModal;
+    mount.querySelectorAll('[data-approve]').forEach(b => b.onclick = async () => {
+      try { await API.approveAuthorization(b.dataset.approve); UI.toast('Authorization approved', 'success'); go('authorizations'); }
+      catch (err) { UI.toast(err.message, 'error'); }
+    });
+    mount.querySelectorAll('[data-reject]').forEach(b => b.onclick = async () => {
+      const ok = await UI.confirm({ title: 'Reject authorization?', message: 'The engagement cannot run active tests until a new authorization is approved.', confirmLabel: 'Reject' });
+      if (!ok) return;
+      try { await API.rejectAuthorization(b.dataset.reject); UI.toast('Authorization rejected', 'success'); go('authorizations'); }
+      catch (err) { UI.toast(err.message, 'error'); }
+    });
+    mount.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      const ok = await UI.confirm({ title: 'Delete authorization?', message: 'This permanently removes the consent record.', confirmLabel: 'Delete' });
+      if (!ok) return;
+      try { await API.deleteAuthorization(b.dataset.del); UI.toast('Authorization deleted', 'success'); go('authorizations'); }
+      catch (err) { UI.toast(err.message, 'error'); }
+    });
+  }
+
+  async function openAuthorizationModal(projects) {
+    const opts = projects.map(p => `<option value="${p.id}">${e(p.name)}</option>`).join('');
+    const today = new Date().toISOString().slice(0, 10);
+    const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10);
+    UI.modal({
+      title: 'New authorization',
+      bodyHTML: `
+        <div class="field"><label for="azProj">Project</label><select class="select" id="azProj">${opts}</select></div>
+        <div class="form-row">
+          <div class="field"><label for="azClient">Client name</label><input class="input" id="azClient" placeholder="Acme Ltd"/></div>
+          <div class="field"><label for="azEmail">Client email</label><input class="input" id="azEmail" type="email" placeholder="security@acme.com"/></div>
+        </div>
+        <div class="field"><label for="azScope">Scope description</label><textarea class="textarea" id="azScope" placeholder="External perimeter, production web apps…"></textarea></div>
+        <div class="field"><label for="azAllowed">Allowed targets (one per line)</label><textarea class="textarea" id="azAllowed" placeholder="acme.com&#10;*.acme.com"></textarea></div>
+        <div class="field"><label for="azExcluded">Excluded targets (one per line, optional)</label><textarea class="textarea" id="azExcluded" placeholder="legacy.acme.com"></textarea></div>
+        <div class="form-row">
+          <div class="field"><label for="azStart">Start date</label><input class="input" id="azStart" type="date" value="${today}"/></div>
+          <div class="field"><label for="azEnd">End date</label><input class="input" id="azEnd" type="date" value="${nextYear}"/></div>
+        </div>
+        <p class="muted" style="font-size:0.78rem;">Unless you are an admin, this authorization is created as <b>pending</b> and must be approved by an admin before tests can run.</p>
+      `,
+      footHTML: `<button class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Create</button>`,
+      onMount: (host, close) => {
+        host.querySelector('#azClient').focus();
+        host.querySelector('[data-cancel]').onclick = close;
+        host.querySelector('[data-save]').onclick = async () => {
+          const payload = {
+            project_id: Number(host.querySelector('#azProj').value),
+            client_name: host.querySelector('#azClient').value.trim(),
+            client_email: host.querySelector('#azEmail').value.trim(),
+            scope_description: host.querySelector('#azScope').value.trim(),
+            allowed_targets: host.querySelector('#azAllowed').value.trim(),
+            excluded_targets: host.querySelector('#azExcluded').value.trim(),
+            start_date: host.querySelector('#azStart').value,
+            end_date: host.querySelector('#azEnd').value,
+          };
+          if (!payload.client_name || !payload.scope_description || !payload.allowed_targets) {
+            UI.toast('Client name, scope and allowed targets are required', 'error'); return;
+          }
+          try { await API.createAuthorization(payload); close(); UI.toast('Authorization created', 'success'); go('authorizations'); }
+          catch (err) { UI.toast(err.message, 'error'); }
+        };
+      },
+    });
+  }
+
+  // ══════════════════════ FINDINGS ══════════════════════
+  const FINDING_STATUSES = ['open', 'in_progress', 'resolved', 'verified', 'risk_accepted', 'false_positive'];
+  const FINDING_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
+
+  function findingStatusPill(s) {
+    const cls = { open: 'pill-open', in_progress: 'pill-info', resolved: 'pill-low',
+      verified: 'pill-low', risk_accepted: 'pill-closed', false_positive: 'pill-closed' }[s] || 'pill-info';
+    return `<span class="pill ${cls}">${e((s || '').replace(/_/g, ' '))}</span>`;
+  }
+
+  async function findings(mount) {
+    mount.innerHTML = loading('Loading findings…');
+    let projects;
+    try { projects = await API.listProjects(); }
+    catch (err) { mount.innerHTML = errorState(err.message); return; }
+    const projName = (pid) => (projects.find(p => p.id === pid) || {}).name || `#${pid}`;
+    const state = { projectId: '', status: '', severity: '' };
+
+    async function renderList() {
+      const body = mount.querySelector('#findingsBody');
+      body.innerHTML = loading('Loading findings…');
+      let list;
+      try {
+        list = await API.listFindings({
+          projectId: state.projectId || undefined,
+          status: state.status || undefined,
+          severity: state.severity || undefined,
+        });
+      } catch (err) { body.innerHTML = errorState(err.message); return; }
+      if (!list.length) { body.innerHTML = emptyInline('No findings match these filters. Open a completed scan and choose "Generate findings" to populate the tracker.'); return; }
+      body.innerHTML = `<table class="tbl">
+        <thead><tr><th>Severity</th><th>Title</th><th>Project</th><th>Port / service</th><th>Status</th><th>Assigned</th><th></th></tr></thead>
+        <tbody>${list.map(f => `<tr>
+          <td>${UI.riskPill(f.severity)}${f.cvss_score != null ? `<span class="muted mono" style="font-size:0.72rem;margin-left:6px;">${e(f.cvss_score)}</span>` : ''}</td>
+          <td>${e(f.title)}${(f.cve_ids && f.cve_ids.length) ? `<div style="margin-top:3px;">${f.cve_ids.map(c => `<span class="cve-tag">${e(c)}</span>`).join(' ')}</div>` : ''}</td>
+          <td>${e(projName(f.project_id))}</td>
+          <td class="mono" style="font-size:0.78rem;">${f.port ? e(f.port) : '-'}${f.service ? ' / ' + e(f.service) : ''}</td>
+          <td>${findingStatusPill(f.status)}</td>
+          <td class="muted" style="font-size:0.8rem;">${f.assigned_to ? e(f.assigned_to) : '-'}</td>
+          <td class="td-actions"><button class="btn btn-ghost btn-sm" data-edit="${f.id}">Update</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      body.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+        const f = list.find(x => String(x.id) === b.dataset.edit);
+        if (f) openFindingModal(f, renderList);
+      });
+    }
+
+    mount.innerHTML = `
+      <div class="page-head">
+        <div><div class="page-title">Findings</div>
+          <div class="page-sub">Track and remediate findings across engagements. Auto-created from completed scans, verified by re-scan.</div></div>
+      </div>
+      <div class="card"><div class="card-header"><span class="card-eyebrow">Filters</span></div>
+        <div class="card-body"><div class="form-row">
+          <div class="field"><label for="fProj">Project</label><select class="select" id="fProj"><option value="">All projects</option>${projects.map(p => `<option value="${p.id}">${e(p.name)}</option>`).join('')}</select></div>
+          <div class="field"><label for="fStatus">Status</label><select class="select" id="fStatus"><option value="">Any status</option>${FINDING_STATUSES.map(s => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('')}</select></div>
+          <div class="field"><label for="fSev">Severity</label><select class="select" id="fSev"><option value="">Any severity</option>${FINDING_SEVERITIES.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
+        </div></div></div>
+      <div class="card"><div class="card-body no-pad" id="findingsBody"></div></div>
+    `;
+    mount.querySelector('#fProj').onchange = (ev) => { state.projectId = ev.target.value; renderList(); };
+    mount.querySelector('#fStatus').onchange = (ev) => { state.status = ev.target.value; renderList(); };
+    mount.querySelector('#fSev').onchange = (ev) => { state.severity = ev.target.value; renderList(); };
+    renderList();
+  }
+
+  function openFindingModal(f, onDone) {
+    UI.modal({
+      title: 'Update finding',
+      bodyHTML: `
+        <p style="font-weight:600;margin-bottom:4px;">${e(f.title)}</p>
+        ${f.description ? `<p class="muted" style="font-size:0.82rem;margin-bottom:14px;">${e(f.description)}</p>` : ''}
+        <div class="form-row">
+          <div class="field"><label for="fdStatus">Status</label><select class="select" id="fdStatus">${FINDING_STATUSES.map(s => `<option value="${s}" ${s === f.status ? 'selected' : ''}>${s.replace(/_/g, ' ')}</option>`).join('')}</select></div>
+          <div class="field"><label for="fdSev">Severity</label><select class="select" id="fdSev">${FINDING_SEVERITIES.map(s => `<option value="${s}" ${s === f.severity ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        </div>
+        <div class="field"><label for="fdAssigned">Assigned to</label><input class="input" id="fdAssigned" value="${e(f.assigned_to || '')}" placeholder="name or email"/></div>
+        <div class="field"><label for="fdNote">Status note</label><textarea class="textarea" id="fdNote" placeholder="Remediation notes…">${e(f.status_note || '')}</textarea></div>
+        ${f.remediation ? `<p class="finding-fix"><strong>Suggested fix:</strong> ${e(f.remediation)}</p>` : ''}
+      `,
+      footHTML: `<button class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save</button>`,
+      onMount: (host, close) => {
+        host.querySelector('#fdStatus').focus();
+        host.querySelector('[data-cancel]').onclick = close;
+        host.querySelector('[data-save]').onclick = async () => {
+          try {
+            await API.updateFinding(f.id, {
+              status: host.querySelector('#fdStatus').value,
+              severity: host.querySelector('#fdSev').value,
+              assigned_to: host.querySelector('#fdAssigned').value.trim(),
+              status_note: host.querySelector('#fdNote').value.trim(),
+            });
+            close(); UI.toast('Finding updated', 'success'); if (onDone) onDone();
+          } catch (err) { UI.toast(err.message, 'error'); }
+        };
+      },
+    });
+  }
+
   // ══════════════════════ SHARED BITS ══════════════════════
   function loading(msg) {
     return `<div class="card"><div class="card-body"><div class="scanning">
@@ -962,5 +1180,6 @@ const Views = (() => {
   }
   function riskRank(r) { return { high: 0, medium: 1, low: 2 }[r] ?? 3; }
 
-  return { dashboard, projects, projectDetail, scanDetail, schedules, settings, openScanModal };
+  return { dashboard, projects, projectDetail, scanDetail, schedules, settings,
+           authorizations, findings, openScanModal };
 })();

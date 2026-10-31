@@ -159,5 +159,29 @@ const API = (() => {
     updateChannel: (id, payload) => request(`/api/notifications/${id}`, { method: 'PATCH', body: payload }),
     deleteChannel: (id) => request(`/api/notifications/${id}`, { method: 'DELETE' }),
     testChannel: (id) => request(`/api/notifications/${id}/test`, { method: 'POST', body: {} }),
+
+    // ---- authorizations (engagement consent gate) ----
+    listAuthorizations: (projectId) => request(`/api/authorizations${projectId ? `?project_id=${projectId}` : ''}`),
+    createAuthorization: (payload) => request('/api/authorizations', { method: 'POST', body: payload }),
+    approveAuthorization: (id) => request(`/api/authorizations/${id}/approve`, { method: 'POST', body: {} }),
+    rejectAuthorization: (id) => request(`/api/authorizations/${id}/reject`, { method: 'POST', body: {} }),
+    deleteAuthorization: (id) => request(`/api/authorizations/${id}`, { method: 'DELETE' }),
+
+    // ---- findings / remediation tracker ----
+    listFindings: ({ projectId, status, severity } = {}) => {
+      const q = new URLSearchParams();
+      if (projectId) q.set('project_id', projectId);
+      if (status) q.set('status', status);
+      if (severity) q.set('severity', severity);
+      const qs = q.toString();
+      return request(`/api/findings${qs ? `?${qs}` : ''}`);
+    },
+    updateFinding: (id, payload) => request(`/api/findings/${id}`, { method: 'PATCH', body: payload }),
+    autoCreateFindings: (scanId) => request(`/api/findings/auto-create/${scanId}`, { method: 'POST', body: {} }),
+    findingsSummary: (projectId) => request(`/api/findings/summary/${projectId}`),
+
+    // ---- user management (superadmin) ----
+    listUsers: () => request('/api/users'),
+    updateUserRole: (id, role) => request(`/api/users/${id}/role`, { method: 'PATCH', body: { role } }),
   };
 })();
