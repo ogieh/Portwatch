@@ -69,9 +69,11 @@ def create_app(config_object=Config):
     from api.schedules import bp as schedules_bp
     from api.notifications import bp as notifications_bp
     from api.audit import bp as audit_bp
+    from api.pentest import bp as pentest_bp
+    from api.recon import bp as recon_bp
 
     for bp in (auth_bp, projects_bp, scans_bp, dashboard_bp, schedules_bp,
-               notifications_bp, audit_bp):
+               notifications_bp, audit_bp, pentest_bp, recon_bp):
         app.register_blueprint(bp)
 
     # Schema: Alembic brings any database (fresh, or pre-2.1) up to head.

@@ -165,6 +165,62 @@ def require_admin(fn):
     return wrapper
 
 
+def user_is_superadmin():
+    """True when the current user holds the reserved owner role. Superadmin is
+    never assigned through the API; it is set out of band for the app owner."""
+    return getattr(g, "user", None) is not None and g.user.role == "superadmin"
+
+
+def user_can_bypass_auth():
+    """Only a superadmin may run pentest actions without an approved
+    authorization document for the project."""
+    return user_is_superadmin()
+
+
+def require_role(*roles):
+    """Protect a route so only the listed roles may call it. Superadmin always
+    passes, so it need not be listed explicitly."""
+    allowed = set(roles) | {"superadmin"}
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        @require_auth
+        def wrapper(*args, **kwargs):
+            if g.user.role not in allowed:
+                return jsonify({"error": "You do not have permission for this action"}), 403
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def require_superadmin(fn):
+    @functools.wraps(fn)
+    @require_auth
+    def wrapper(*args, **kwargs):
+        if not user_is_superadmin():
+            return jsonify({"error": "Owner (superadmin) access required"}), 403
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def require_pentest_auth(fn):
+    """Authenticate, then record on flask.g whether this user may bypass the
+    per-project authorization document (superadmin only). The route body still
+    enforces scope and per-run consent; this decorator never 403s on its own, so
+    an authorized analyst reaches the body and is checked there."""
+
+    @functools.wraps(fn)
+    @require_auth
+    def wrapper(*args, **kwargs):
+        g.auth_bypassed = user_can_bypass_auth()
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
 def require_session(fn):
     """Like require_auth but rejects API keys (for account-management routes)."""
 

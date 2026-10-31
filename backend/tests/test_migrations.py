@@ -51,7 +51,7 @@ def test_legacy_database_is_stamped_and_upgraded():
         cols = {c["name"] for c in insp.get_columns("scans")}
         assert {"status", "authorised", "started_at", "requested_by"} <= cols
         with db.engine.connect() as conn:
-            assert current_revision(conn) == "0002_hardening"
+            assert current_revision(conn) == "0003_pentest_tables"
         # Back-fill semantics.
         s = db.session.get(Scan, 1)
         assert s.status == "completed" and s.authorised is False
@@ -81,7 +81,7 @@ def test_downgrade_and_upgrade_round_trip(app):
             assert current_revision(conn) == "0001_baseline"
             assert "audit_log" not in sa.inspect(conn).get_table_names()
             command.upgrade(cfg, "head")
-            assert current_revision(conn) == "0002_hardening"
+            assert current_revision(conn) == "0003_pentest_tables"
 
 
 def test_production_refuses_default_secret():

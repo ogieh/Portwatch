@@ -396,3 +396,203 @@ class AuditLog(db.Model):
             "detail": self.detail,
             "ip": self.ip,
         }
+
+
+# --------------------------- PENTEST TABLES (v3.0) ---------------------------
+# These back the api/pentest.py and api/recon.py blueprints and match
+# migrations/versions/0003_pentest_tables.py exactly.
+
+class Authorization(db.Model):
+    """A signed engagement authorization. The central consent control for the
+    pentest API: a non-superadmin may run active tests against a project only
+    while an approved, in-date, in-scope authorization exists for it."""
+    __tablename__ = "authorizations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False, index=True)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    client_name = db.Column(db.String(255), nullable=False)
+    client_email = db.Column(db.String(255))
+    scope_description = db.Column(db.Text, nullable=False)
+    # One target per line; same wildcard rules as Project.allowlist().
+    allowed_targets = db.Column(db.Text, nullable=False, default="")
+    excluded_targets = db.Column(db.Text, default="")
+    start_date = db.Column(db.DateTime, nullable=False)
+    end_date = db.Column(db.DateTime, nullable=False)
+    document_filename = db.Column(db.String(255))
+    document_hash = db.Column(db.String(64))
+    status = db.Column(db.String(20), nullable=False, default="approved")
+    approved_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    notes = db.Column(db.Text, default="")
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+    def _entries(self, field):
+        return [t.strip().lower() for t in (getattr(self, field) or "").splitlines() if t.strip()]
+
+    def is_active(self):
+        """Approved and within its start/end window (naive UTC, like utcnow)."""
+        if self.status != "approved":
+            return False
+        now = utcnow()
+        if self.start_date and now < self.start_date:
+            return False
+        if self.end_date and now > self.end_date:
+            return False
+        return True
+
+    @staticmethod
+    def _matches(entry, target):
+        if entry.startswith("*."):
+            suffix = entry[1:]            # ".example.com"
+            return target == entry[2:] or target.endswith(suffix)
+        return target == entry
+
+    def target_in_scope(self, target):
+        """True when target matches an allowed entry and no excluded entry."""
+        t = _normalize_target(target)
+        allowed = self._entries("allowed_targets")
+        if not allowed:
+            return False
+        if any(self._matches(e, t) for e in self._entries("excluded_targets")):
+            return False
+        return any(self._matches(e, t) for e in allowed)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "uploaded_by": self.uploaded_by,
+            "client_name": self.client_name,
+            "client_email": self.client_email or "",
+            "scope_description": self.scope_description,
+            "allowed_targets": self._entries("allowed_targets"),
+            "excluded_targets": self._entries("excluded_targets"),
+            "start_date": self.start_date.isoformat() if self.start_date else None,
+            "end_date": self.end_date.isoformat() if self.end_date else None,
+            "document_filename": self.document_filename,
+            "status": self.status,
+            "approved_by": self.approved_by,
+            "is_active": self.is_active(),
+            "notes": self.notes or "",
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Finding(db.Model):
+    """A tracked security finding (from a scan or added manually) with a
+    remediation lifecycle (open -> ... -> verified)."""
+    __tablename__ = "findings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False, index=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"))
+    title = db.Column(db.String(500), nullable=False)
+    description = db.Column(db.Text)
+    severity = db.Column(db.String(20), nullable=False, default="medium")
+    cvss_score = db.Column(db.Float)
+    cve_ids = db.Column(db.Text, default="")
+    port = db.Column(db.Integer)
+    service = db.Column(db.String(100))
+    evidence = db.Column(db.Text)
+    remediation = db.Column(db.Text)
+    status = db.Column(db.String(20), nullable=False, default="open", index=True)
+    assigned_to = db.Column(db.String(255))
+    status_note = db.Column(db.Text, default="")
+    verified_scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"))
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+
+    def cve_list(self):
+        return [c.strip() for c in (self.cve_ids or "").split(",") if c.strip()]
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "scan_id": self.scan_id,
+            "title": self.title,
+            "description": self.description or "",
+            "severity": self.severity,
+            "cvss_score": self.cvss_score,
+            "cve_ids": self.cve_list(),
+            "port": self.port,
+            "service": self.service,
+            "evidence": self.evidence or "",
+            "remediation": self.remediation or "",
+            "status": self.status,
+            "assigned_to": self.assigned_to,
+            "status_note": self.status_note or "",
+            "verified_scan_id": self.verified_scan_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class Asset(db.Model):
+    """An inventory item (domain, subdomain, IP, URL) discovered for a project."""
+    __tablename__ = "assets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False, index=True)
+    asset_type = db.Column(db.String(20), nullable=False, default="domain")
+    value = db.Column(db.String(500), nullable=False)
+    metadata_json = db.Column(db.Text, default="{}")
+    first_seen = db.Column(db.DateTime, default=utcnow)
+    last_seen = db.Column(db.DateTime, default=utcnow)
+    status = db.Column(db.String(20), default="active")
+    notes = db.Column(db.Text, default="")
+    __table_args__ = (
+        db.UniqueConstraint("project_id", "asset_type", "value", name="uq_asset"),
+    )
+
+    def set_metadata(self, data):
+        self.metadata_json = json.dumps(data or {})
+
+    def get_metadata(self):
+        try:
+            return json.loads(self.metadata_json or "{}")
+        except (ValueError, TypeError):
+            return {}
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "asset_type": self.asset_type,
+            "value": self.value,
+            "metadata": self.get_metadata(),
+            "first_seen": self.first_seen.isoformat() if self.first_seen else None,
+            "last_seen": self.last_seen.isoformat() if self.last_seen else None,
+            "status": self.status,
+            "notes": self.notes or "",
+        }
+
+
+class ReconResult(db.Model):
+    """A stored recon/OSINT/web-vuln/network-enum run result (raw JSON)."""
+    __tablename__ = "recon_results"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False, index=True)
+    target = db.Column(db.String(500), nullable=False)
+    module = db.Column(db.String(40), nullable=False)
+    result_json = db.Column(db.Text, nullable=False, default="{}")
+    requested_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+
+    def get_result(self):
+        try:
+            return json.loads(self.result_json or "{}")
+        except (ValueError, TypeError):
+            return {}
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "target": self.target,
+            "module": self.module,
+            "result": self.get_result(),
+            "requested_by": self.requested_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
