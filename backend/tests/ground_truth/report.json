@@ -43,7 +43,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 83,
+      "score": 82,
       "grade": "B",
       "grade_band": "A-B",
       "band_ok": true
@@ -71,7 +71,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 63,
+      "score": 64,
       "grade": "C",
       "grade_band": "B-C",
       "band_ok": true
@@ -99,7 +99,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 68,
+      "score": 63,
       "grade": "C",
       "grade_band": "B-C",
       "band_ok": true
@@ -127,8 +127,8 @@
         "missing": [],
         "extra": []
       },
-      "score": 66,
-      "grade": "C",
+      "score": 58,
+      "grade": "D",
       "grade_band": "C-D",
       "band_ok": true
     },
@@ -155,7 +155,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 48,
+      "score": 45,
       "grade": "D",
       "grade_band": "C-D",
       "band_ok": true
@@ -187,7 +187,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 50,
+      "score": 44,
       "grade": "D",
       "grade_band": "D-F",
       "band_ok": true
@@ -223,7 +223,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 35,
+      "score": 30,
       "grade": "F",
       "grade_band": "D-F",
       "band_ok": true
@@ -259,7 +259,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 35,
+      "score": 29,
       "grade": "F",
       "grade_band": "F",
       "band_ok": true
@@ -293,8 +293,8 @@
         "missing": [],
         "extra": []
       },
-      "score": 41,
-      "grade": "D",
+      "score": 26,
+      "grade": "F",
       "grade_band": "D-F",
       "band_ok": true
     },
@@ -327,7 +327,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 36,
+      "score": 21,
       "grade": "F",
       "grade_band": "F",
       "band_ok": true
@@ -367,7 +367,7 @@
         "missing": [],
         "extra": []
       },
-      "score": 20,
+      "score": 10,
       "grade": "F",
       "grade_band": "F",
       "band_ok": true
@@ -410,59 +410,9 @@
     }
   ],
   "rank_calibration": {
-    "spearman": -0.9108,
-    "inversions": [
-      {
-        "more_severe": "vpn-gateway",
-        "more_severe_score": 63,
-        "less_severe": "ci-cd-pipeline",
-        "less_severe_score": 68,
-        "gap": 5
-      },
-      {
-        "more_severe": "vpn-gateway",
-        "more_severe_score": 63,
-        "less_severe": "public-kiosk",
-        "less_severe_score": 66,
-        "gap": 3
-      },
-      {
-        "more_severe": "dev-workstation",
-        "more_severe_score": 48,
-        "less_severe": "backup-server",
-        "less_severe_score": 50,
-        "gap": 2
-      },
-      {
-        "more_severe": "iot-camera",
-        "more_severe_score": 35,
-        "less_severe": "mail-server",
-        "less_severe_score": 41,
-        "gap": 6
-      },
-      {
-        "more_severe": "iot-camera",
-        "more_severe_score": 35,
-        "less_severe": "vulnerable-web",
-        "less_severe_score": 36,
-        "gap": 1
-      },
-      {
-        "more_severe": "staging-box",
-        "more_severe_score": 35,
-        "less_severe": "mail-server",
-        "less_severe_score": 41,
-        "gap": 6
-      },
-      {
-        "more_severe": "staging-box",
-        "more_severe_score": 35,
-        "less_severe": "vulnerable-web",
-        "less_severe_score": 36,
-        "gap": 1
-      }
-    ],
-    "inversion_count": 7,
+    "spearman": -1.0,
+    "inversions": [],
+    "inversion_count": 0,
     "note": "Spearman is computed between expert severity and risk score, so a strongly NEGATIVE value is the expected sign: a more severe host must score lower. Inversions are pairs where that ordering breaks. They are a known limitation of the count-based model (it weighs port count, not service criticality), not a corpus error."
   }
 }

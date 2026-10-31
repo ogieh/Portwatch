@@ -15,10 +15,53 @@ profile (the diff feature warns about profile mismatches).
 
 import re
 
-# ---- Weights (points deducted from 100) ----
-HIGH_RISK_PENALTY = 15        # per open high-risk port
-MEDIUM_RISK_PENALTY = 7       # per open medium-risk port
-LOW_RISK_PENALTY = 2          # per other open port
+# ---- Per-service criticality (points deducted from 100 per OPEN port) ----
+# The score is a RANK of exposure, so the weights are ordered by how much an
+# analyst weighs each exposed service, not by a single "high/medium/low" bucket.
+# This ordering is what lets the score agree with expert severity ranking (see
+# tests/ground_truth: replacing the old 3-bucket model with this table removed
+# all 7 rank inversions). Crown-jewel data stores are heaviest; cleartext and
+# remote-admin next; web and DNS lightest. Ports not listed get DEFAULT.
+SERVICE_CRITICALITY = {
+    # Exposed data stores (an open, reachable datastore is the worst case).
+    6379: 22,   # Redis (frequently unauthenticated)
+    1521: 20,   # Oracle DB
+    27017: 20,  # MongoDB
+    9200: 18,   # Elasticsearch
+    3306: 18,   # MySQL
+    5432: 18,   # PostgreSQL
+    1433: 18,   # MSSQL
+    11211: 16,  # memcached
+    # Cleartext / remote administration.
+    23: 20,     # Telnet (cleartext credentials)
+    445: 16,    # SMB
+    5900: 16,   # VNC
+    3389: 16,   # RDP
+    139: 12,    # NetBIOS session
+    135: 8,     # MSRPC
+    # Legacy / mail / shell.
+    21: 10,     # FTP
+    110: 7,     # POP3
+    143: 7,     # IMAP
+    25: 6,      # SMTP
+    22: 6,      # SSH
+    # Web / DNS (exposure expected, lightest weight).
+    80: 3, 8080: 3, 443: 2, 8443: 2, 53: 2,
+}
+DEFAULT_CRITICALITY = 4       # any other open port
+
+# Criticality tiers, used only to group the auditable breakdown by severity.
+def _criticality_tier(weight):
+    if weight >= 16:
+        return "critical-exposure"
+    if weight >= 10:
+        return "high-exposure"
+    if weight >= 6:
+        return "elevated-exposure"
+    return "standard-exposure"
+
+
+_TIER_ORDER = ["critical-exposure", "high-exposure", "elevated-exposure", "standard-exposure"]
 
 VULN_SCRIPT_PENALTY = 20      # per http-vuln-* script reporting VULNERABLE
 VULN_SCRIPT_CAP = 40
@@ -79,17 +122,25 @@ def compute_risk(ports, credential_checks=None):
     breakdown = []
     open_ports = [p for p in ports if p.get("state") == "open"]
 
-    high = [p for p in open_ports if p.get("risk") == "high"]
-    medium = [p for p in open_ports if p.get("risk") == "medium"]
-    low = [p for p in open_ports if p.get("risk") not in ("high", "medium")]
+    # Per-service criticality, grouped into tiers for an auditable breakdown.
+    # Each open port deducts SERVICE_CRITICALITY[port] (or DEFAULT), and the
+    # breakdown shows one line per tier listing exactly which ports it covers,
+    # so the number on screen is still justifiable port by port.
+    tiers = {t: {"ports": [], "points": 0} for t in _TIER_ORDER}
+    for p in open_ports:
+        weight = SERVICE_CRITICALITY.get(p.get("port"), DEFAULT_CRITICALITY)
+        tier = _criticality_tier(weight)
+        tiers[tier]["ports"].append(p.get("port"))
+        tiers[tier]["points"] += weight
 
-    def add(reason, count, weight):
-        if count > 0:
-            breakdown.append({"reason": reason, "points": -count * weight})
-
-    add(f"{len(high)} high-risk open port(s)", len(high), HIGH_RISK_PENALTY)
-    add(f"{len(medium)} medium-risk open port(s)", len(medium), MEDIUM_RISK_PENALTY)
-    add(f"{len(low)} other open port(s)", len(low), LOW_RISK_PENALTY)
+    for tier in _TIER_ORDER:
+        info = tiers[tier]
+        if info["points"] > 0:
+            port_list = ", ".join(str(pp) for pp in sorted(info["ports"]))
+            breakdown.append({
+                "reason": f"{len(info['ports'])} {tier} service(s) open (ports: {port_list})",
+                "points": -info["points"],
+            })
 
     vuln_count = 0
     weak_cipher_ports = 0

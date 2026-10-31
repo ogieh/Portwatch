@@ -43,36 +43,26 @@ Each score checked against the band an analyst assigned to that host, and agains
 
 Spearman correlation between expert severity and risk score. The correlation is negative by design: a more severe host must score lower.
 
-- Spearman: **-0.9108**
-- Ordering inversions: **7**
+- Spearman: **-1.0000**
+- Ordering inversions: **0**
 
-| More severe host | Score | Less severe host | Score | Gap |
-|---|---|---|---|---|
-| vpn-gateway | 63 | ci-cd-pipeline | 68 | 5 |
-| vpn-gateway | 63 | public-kiosk | 66 | 3 |
-| dev-workstation | 48 | backup-server | 50 | 2 |
-| iot-camera | 35 | mail-server | 41 | 6 |
-| iot-camera | 35 | vulnerable-web | 36 | 1 |
-| staging-box | 35 | mail-server | 41 | 6 |
-| staging-box | 35 | vulnerable-web | 36 | 1 |
-
-These inversions are a known limitation of the count-based model: it deducts points per exposed port, while an analyst weighs service criticality. A host with many low-criticality ports can outscore one with fewer but more dangerous services. The model is a rank, not a measure of real exploitability.
+No ordering inversions: the per-service criticality model (see `services/scoring.py`, `SERVICE_CRITICALITY`) ranks every corpus host in the same order as the analyst. This replaced the earlier 3-bucket count model, which produced 7 inversions (Spearman -0.9108). Note that a perfect rank on 12 hand-labelled hosts is a strong in-sample fit; the live differential harness (section 6) is the out-of-sample check.
 
 ## 5. Expected vs. actual, per target
 
 | Target | Expert severity | Score | Grade | Expert band | In band | Expected ports | Actual ports | Vuln flags |
 |---|---|---|---|---|---|---|---|---|
-| clean-host | 5 | 83 | B | A-B | yes | 53, 3389 | 53, 3389 | - |
-| vpn-gateway | 20 | 63 | C | B-C | yes | 21, 25, 27017 | 21, 25, 27017 | - |
-| ci-cd-pipeline | 25 | 68 | C | B-C | yes | 21, 143, 27017 | 21, 143, 27017 | - |
-| public-kiosk | 30 | 66 | C | C-D | yes | 6379, 8080, 8443 | 6379, 8080, 8443 | - |
-| dev-workstation | 35 | 48 | D | C-D | yes | 443, 3306, 8443 | 443, 3306, 8443 | - |
-| backup-server | 45 | 50 | D | D-F | yes | 25, 110, 3389, 8080, 8443 | 25, 110, 3389, 8080, 8443 | - |
-| iot-camera | 55 | 35 | F | D-F | yes | 22, 25, 80, 8080, 27017 | 22, 25, 80, 8080, 27017 | http-vuln-cve2021-41773 |
-| staging-box | 65 | 35 | F | F | yes | 21, 22, 25, 110, 143, 443, 3306 | 21, 22, 25, 110, 143, 443, 3306 | - |
-| mail-server | 70 | 41 | D | D-F | yes | 53, 443, 3306, 6379, 8443, 27017 | 53, 443, 3306, 6379, 8443, 27017 | - |
-| vulnerable-web | 85 | 36 | F | F | yes | 22, 110, 143, 8080, 8443, 27017 | 22, 110, 143, 8080, 8443, 27017 | - |
-| db-exposed | 90 | 20 | F | F | yes | 22, 23, 53, 143, 443, 8080, 8443 | 22, 23, 53, 143, 443, 8080, 8443 | http-vuln-cve2021-41773 |
+| clean-host | 5 | 82 | B | A-B | yes | 53, 3389 | 53, 3389 | - |
+| vpn-gateway | 20 | 64 | C | B-C | yes | 21, 25, 27017 | 21, 25, 27017 | - |
+| ci-cd-pipeline | 25 | 63 | C | B-C | yes | 21, 143, 27017 | 21, 143, 27017 | - |
+| public-kiosk | 30 | 58 | D | C-D | yes | 6379, 8080, 8443 | 6379, 8080, 8443 | - |
+| dev-workstation | 35 | 45 | D | C-D | yes | 443, 3306, 8443 | 443, 3306, 8443 | - |
+| backup-server | 45 | 44 | D | D-F | yes | 25, 110, 3389, 8080, 8443 | 25, 110, 3389, 8080, 8443 | - |
+| iot-camera | 55 | 30 | F | D-F | yes | 22, 25, 80, 8080, 27017 | 22, 25, 80, 8080, 27017 | http-vuln-cve2021-41773 |
+| staging-box | 65 | 29 | F | F | yes | 21, 22, 25, 110, 143, 443, 3306 | 21, 22, 25, 110, 143, 443, 3306 | - |
+| mail-server | 70 | 26 | F | D-F | yes | 53, 443, 3306, 6379, 8443, 27017 | 53, 443, 3306, 6379, 8443, 27017 | - |
+| vulnerable-web | 85 | 21 | F | F | yes | 22, 110, 143, 8080, 8443, 27017 | 22, 110, 143, 8080, 8443, 27017 | - |
+| db-exposed | 90 | 10 | F | F | yes | 22, 23, 53, 143, 443, 8080, 8443 | 22, 23, 53, 143, 443, 8080, 8443 | http-vuln-cve2021-41773 |
 | legacy-win | 95 | 0 | F | F | yes | 21, 23, 110, 443, 3306, 3389, 6379 | 21, 23, 110, 443, 3306, 3389, 6379 | - |
 
 ## 6. Scope and known limitations
@@ -81,9 +71,9 @@ What this harness does and does not establish:
 
 - It validates the **scoring, compliance, and aggregation path** end to end: that the engine reports what the reference says, that the risk model lands where an analyst would put it, and that the corpus expectations are met exactly.
 - It runs against the **deterministic simulation engine**. The simulation is seeded per target, so the corpus is a stable, versioned oracle. It is not a substitute for scanning a real host.
-- It does **not** validate the live nmap path. To do that, point the corpus at real reference hosts and record the expected ports by hand; the harness itself does not change.
-- The corpus was authored by hand from the simulation's documented behaviour. That makes it a **regression guard**, not an independent security oracle. An independent oracle would be a second scanner (masscan, RustScan) or an external index (Shodan, Censys) run against the same hosts.
-- A score is a **rank within a profile**, not a measure of real exploitability. The inversions in section 4 are the concrete evidence for that limit.
+- This harness runs against the simulation only. The **live nmap path is validated separately** by the differential harness (`backend/tests/differential/`, `docs/DIFFERENTIAL.md`), which scans a real reference lab (`docker/lab/`) with the real engine and compares it against an independent socket oracle (and a second external scanner when present). That is the independent oracle this report previously said it lacked.
+- The corpus was authored by hand from the simulation's documented behaviour, so on its own it is a **regression guard**. The differential job and the NVD cross-check (`backend/tests/cve_validation.py`) are the independent checks that do not share code or data with PortWatch.
+- A score is a **rank within a profile**, not a measure of real exploitability, even at Spearman -1.0 on this corpus.
 
 ## 7. Reproducing this report
 

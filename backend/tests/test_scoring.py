@@ -24,29 +24,32 @@ def test_clean_scan_is_perfect():
 
 
 def test_port_weights():
-    ports = [port(23, risk="high"), port(22, risk="medium"), port(80), port(8080)]
+    # Per-service criticality: 23 (Telnet) 20, 22 (SSH) 6, 80/8080 (web) 3 each.
+    ports = [port(23), port(22), port(80), port(8080)]
     r = scoring.compute_risk(ports)
-    assert r["score"] == 100 - 15 - 7 - 2 * 2
+    assert r["score"] == 100 - 20 - 6 - 3 - 3
     reasons = [b["reason"] for b in r["breakdown"]]
-    assert "1 high-risk open port(s)" in reasons
-    assert "2 other open port(s)" in reasons
+    assert "1 critical-exposure service(s) open (ports: 23)" in reasons
+    assert "1 elevated-exposure service(s) open (ports: 22)" in reasons
+    assert "2 standard-exposure service(s) open (ports: 80, 8080)" in reasons
 
 
 def test_vuln_script_cap():
     scripts = {"http-vuln-cve2021-41773": "VULNERABLE: x", "http-vuln-cve2017-5638": "VULNERABLE: y"}
     ports = [port(80, scripts=scripts), port(8080, scripts=scripts), port(8443, scripts=scripts)]
     r = scoring.compute_risk(ports)
-    # 6 hits * 20 = 120, capped at 40; plus 3 low ports * 2.
-    assert r["score"] == 100 - 40 - 6
+    # 6 hits * 20 = 120, capped at 40; plus web ports 80(3) + 8080(3) + 8443(2) = 8.
+    assert r["score"] == 100 - 40 - 8
     assert any(b["points"] == -40 for b in r["breakdown"])
 
 
 def test_vuln_script_requires_vulnerable_keyword():
     ports = [port(80, scripts={"http-vuln-cve2021-41773": "NOT VULNERABLE"})]
     # Contains the substring VULNERABLE, so the (conservative) engine counts it.
-    assert scoring.compute_risk(ports)["score"] == 100 - 2 - 20
+    # Port 80 criticality is 3.
+    assert scoring.compute_risk(ports)["score"] == 100 - 3 - 20
     ports = [port(80, scripts={"http-vuln-cve2021-41773": "Couldn't find a match"})]
-    assert scoring.compute_risk(ports)["score"] == 98
+    assert scoring.compute_risk(ports)["score"] == 97
 
 
 def test_header_cipher_method_penalties_and_caps():
@@ -58,12 +61,12 @@ def test_header_cipher_method_penalties_and_caps():
         "http-methods": "Supported Methods: GET POST TRACE",
     }
     r = scoring.compute_risk([port(443, scripts=scripts)])
-    # low port 2 + cipher 10 + dh 5 + headers min(5*3, 12)=12 + methods 6
+    # 443 criticality 2 + cipher 10 + dh 5 + headers min(5*3, 12)=12 + methods 6
     assert r["score"] == 100 - 2 - 10 - 5 - 12 - 6
     three = [port(443, scripts=scripts), port(8443, scripts=scripts), port(80, scripts=scripts)]
     r = scoring.compute_risk(three)
-    # caps: cipher 20, dh 10, headers 12, methods 12; ports 6
-    assert r["score"] == 100 - 6 - 20 - 10 - 12 - 12
+    # caps: cipher 20, dh 10, headers 12, methods 12; ports 443(2)+8443(2)+80(3)=7
+    assert r["score"] == 100 - 7 - 20 - 10 - 12 - 12
 
 
 def test_credential_check_deductions():
@@ -74,8 +77,9 @@ def test_credential_check_deductions():
                         {"vulnerable": True}],
     }
     r = scoring.compute_risk([port(80)], cc)
-    # 3 unprotected logins * 12 = 36 capped 24; 3 db failures * 20 = 60 capped 40
-    assert r["score"] == 100 - 2 - 24 - 40
+    # port 80 criticality 3; 3 unprotected logins * 12 = 36 capped 24;
+    # 3 db failures * 20 = 60 capped 40
+    assert r["score"] == 100 - 3 - 24 - 40
     assert r["grade"] == "F"
 
 
@@ -89,4 +93,5 @@ def test_score_floor_is_zero():
 
 def test_non_string_script_output_is_ignored():
     ports = [port(80, scripts={"http-vuln-cve2021-41773": {"weird": "VULNERABLE"}})]
-    assert scoring.compute_risk(ports)["score"] == 98
+    # Port 80 criticality 3; the non-string script output is not counted.
+    assert scoring.compute_risk(ports)["score"] == 97

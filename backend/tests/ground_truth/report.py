@@ -16,9 +16,19 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 BACKEND = os.path.abspath(os.path.join(HERE, "..", ".."))
 REPO = os.path.abspath(os.path.join(BACKEND, ".."))
-for path in (BACKEND, os.path.join(BACKEND, "tests")):
+# Mirror app.py's import wiring: services/ must come first so bare `import
+# scoring` / `import scanner` resolve to the canonical services/ modules, not
+# the dead top-level duplicates that still shadow them when services/ is absent
+# from the path. (Running standalone without this ordering regenerated this
+# report from the stale top-level scoring.py.)
+for path in (os.path.join(BACKEND, "tests"), BACKEND,
+             os.path.join(BACKEND, "services")):
     if path not in sys.path:
         sys.path.insert(0, path)
+# Put services/ at the very front.
+_services = os.path.join(BACKEND, "services")
+sys.path.remove(_services)
+sys.path.insert(0, _services)
 
 import services.scanner as scanner_mod  # noqa: E402
 from ground_truth.harness import evaluate  # noqa: E402
@@ -117,12 +127,19 @@ def render(result):
               i["less_severe_score"], i["gap"]] for i in rc["inversions"]],
             ["More severe host", "Score", "Less severe host", "Score", "Gap"]))
         lines.append("")
-        lines.append("These inversions are a known limitation of the "
-                     "count-based model: it deducts points per exposed port, "
-                     "while an analyst weighs service criticality. A host with "
-                     "many low-criticality ports can outscore one with fewer "
-                     "but more dangerous services. The model is a rank, not a "
-                     "measure of real exploitability.")
+        lines.append("Each inversion is a pair where a less severe host scores "
+                     "worse than a more severe one. The score is a rank within a "
+                     "profile, not a measure of real exploitability.")
+        lines.append("")
+    else:
+        lines.append("No ordering inversions: the per-service criticality model "
+                     "(see `services/scoring.py`, `SERVICE_CRITICALITY`) ranks "
+                     "every corpus host in the same order as the analyst. This "
+                     "replaced the earlier 3-bucket count model, which produced "
+                     "7 inversions (Spearman -0.9108). Note that a perfect rank "
+                     "on 12 hand-labelled hosts is a strong in-sample fit; the "
+                     "live differential harness (section 6) is the out-of-sample "
+                     "check.")
         lines.append("")
 
     lines.append("## 5. Expected vs. actual, per target")
@@ -156,17 +173,20 @@ def render(result):
                  "The simulation is seeded per target, so the corpus is a "
                  "stable, versioned oracle. It is not a substitute for "
                  "scanning a real host.")
-    lines.append("- It does **not** validate the live nmap path. To do that, "
-                 "point the corpus at real reference hosts and record the "
-                 "expected ports by hand; the harness itself does not change.")
+    lines.append("- This harness runs against the simulation only. The **live "
+                 "nmap path is validated separately** by the differential "
+                 "harness (`backend/tests/differential/`, `docs/DIFFERENTIAL.md`), "
+                 "which scans a real reference lab (`docker/lab/`) with the real "
+                 "engine and compares it against an independent socket oracle "
+                 "(and a second external scanner when present). That is the "
+                 "independent oracle this report previously said it lacked.")
     lines.append("- The corpus was authored by hand from the simulation's "
-                 "documented behaviour. That makes it a **regression guard**, "
-                 "not an independent security oracle. An independent oracle "
-                 "would be a second scanner (masscan, RustScan) or an external "
-                 "index (Shodan, Censys) run against the same hosts.")
+                 "documented behaviour, so on its own it is a **regression "
+                 "guard**. The differential job and the NVD cross-check "
+                 "(`backend/tests/cve_validation.py`) are the independent checks "
+                 "that do not share code or data with PortWatch.")
     lines.append("- A score is a **rank within a profile**, not a measure of "
-                 "real exploitability. The inversions in section 4 are the "
-                 "concrete evidence for that limit.")
+                 "real exploitability, even at Spearman -1.0 on this corpus.")
     lines.append("")
 
     lines.append("## 7. Reproducing this report")
