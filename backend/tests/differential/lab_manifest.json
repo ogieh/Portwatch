@@ -1,0 +1,56 @@
+{
+  "_comment": "Ground-truth intent for the reference lab in docker/lab/docker-compose.lab.yml. 'address' + 'open_ports' is what we deliberately exposed; the harness re-confirms each port with its own independent socket prober at run time and fails if intent and reality disagree. 'expected_service' is a substring the scanner's version string should contain. 'expected_vuln_flags' are NSE http-vuln-* scripts that should fire against the deliberately vulnerable host. This file must stay in sync with the compose file (test_differential.py asserts the address/port pairs match).",
+  "profile": "deep",
+  "decoy_ports": [23, 139, 445, 3389, 8081],
+  "hosts": [
+    {
+      "name": "clean-web",
+      "address": "127.0.0.11",
+      "open_ports": [80],
+      "expected_service": "nginx",
+      "expected_vuln_flags": [],
+      "note": "Hardened nginx: all security headers present, only GET/HEAD. Should grade well and show no missing-header or dangerous-method deductions."
+    },
+    {
+      "name": "apache-vuln",
+      "address": "127.0.0.12",
+      "open_ports": [80],
+      "expected_service": "Apache",
+      "expected_version_contains": "2.4.49",
+      "expected_vuln_flags": ["http-vuln-cve2021-41773"],
+      "note": "Apache 2.4.49 in the exploitable config for CVE-2021-41773. The live NSE script should confirm the traversal/RCE."
+    },
+    {
+      "name": "redis-open",
+      "address": "127.0.0.13",
+      "open_ports": [6379],
+      "expected_service": "redis",
+      "expected_vuln_flags": [],
+      "note": "Unauthenticated Redis. High-risk open data store."
+    },
+    {
+      "name": "mongo-open",
+      "address": "127.0.0.14",
+      "open_ports": [27017],
+      "expected_service": "mongodb",
+      "expected_vuln_flags": [],
+      "note": "No-auth MongoDB. High-risk open data store."
+    },
+    {
+      "name": "postgres-exposed",
+      "address": "127.0.0.15",
+      "open_ports": [5432],
+      "expected_service": "postgresql",
+      "expected_vuln_flags": [],
+      "note": "Exposed PostgreSQL (password set, port reachable)."
+    },
+    {
+      "name": "ftp-plain",
+      "address": "127.0.0.16",
+      "open_ports": [21],
+      "expected_service": "ftp",
+      "expected_vuln_flags": [],
+      "note": "Plaintext FTP control channel on 21."
+    }
+  ]
+}

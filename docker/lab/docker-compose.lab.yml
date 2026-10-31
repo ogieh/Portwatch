@@ -1,0 +1,77 @@
+# Reference lab for PortWatch Pro's differential validation.
+#
+# Every service here runs in a KNOWN state and is published on its NATIVE port
+# (so PortWatch's --top-ports engine can find it) on a distinct loopback
+# address in 127.0.0.0/8 (all of which is loopback on Linux, where CI runs), so
+# each service looks like its own host. Because these are containers on your own
+# loopback interface, scanning them is authorised by construction.
+#
+# The address + native port below is the ground-truth intent; at run time the
+# harness's own independent socket prober re-confirms each port is really open
+# and fails loudly if the lab and the manifest disagree.
+# backend/tests/differential/lab_manifest.json MUST stay in sync with this file
+# (test_differential.py asserts it).
+#
+# Bring it up:   docker compose -f docker/lab/docker-compose.lab.yml up -d
+# Tear it down:  docker compose -f docker/lab/docker-compose.lab.yml down
+#
+# NOTE: the 127.0.0.N host IPs below work as published addresses on Linux. On
+# macOS/Windows, run the lab and harness inside the Docker network instead (see
+# docs/DIFFERENTIAL.md); the real validation run is a Linux CI job regardless.
+
+name: portwatch-lab
+
+services:
+  # A hardened web host: TLS terminator with a full security-header set.
+  clean-web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.11:80:80"
+    volumes:
+      - ./clean-web.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # Apache 2.4.49: the version with CVE-2021-41773 (path traversal -> RCE when
+  # cgi-bin is enabled and a directory is "Require all granted"). The config
+  # mounted below deliberately puts it in the vulnerable state so the live
+  # nmap NSE script http-vuln-cve2021-41773 has something real to confirm.
+  apache-vuln:
+    image: httpd:2.4.49
+    restart: unless-stopped
+    ports:
+      - "127.0.0.12:80:80"
+    volumes:
+      - ./apache-vuln.conf:/usr/local/apache2/conf/httpd.conf:ro
+
+  # Redis with no password: a classic exposed data store.
+  redis-open:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--protected-mode", "no"]
+    ports:
+      - "127.0.0.13:6379:6379"
+
+  # MongoDB with no auth enabled.
+  mongo-open:
+    image: mongo:6.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.14:27017:27017"
+
+  # PostgreSQL, exposed (auth on, but the port is reachable).
+  postgres-exposed:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: labpassword
+    ports:
+      - "127.0.0.15:5432:5432"
+
+  # An FTP server: plaintext control channel on 21.
+  ftp-plain:
+    image: delfer/alpine-ftp-server:latest
+    restart: unless-stopped
+    environment:
+      USERS: "labuser|labpass"
+    ports:
+      - "127.0.0.16:21:21"

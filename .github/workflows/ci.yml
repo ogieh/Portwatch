@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ── Unit + integration test suite (simulation engine, no network) ──────────
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run test suite with coverage
+        run: python test_backend.py
+
+  # ── Differential validation: PortWatch's REAL engine vs an independent ─────
+  #    oracle, against the live reference lab. This is the job that proves the
+  #    scanner matches reality, not just its own simulation.
+  differential:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install nmap (the real engine) and a second scanner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nmap
+      - name: Install Python dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Bring up the reference lab
+        working-directory: .
+        run: docker compose -f docker/lab/docker-compose.lab.yml up -d
+      - name: Wait for lab services to accept connections
+        working-directory: .
+        run: |
+          python - <<'PY'
+          import socket, time, json, sys
+          hosts = json.load(open("backend/tests/differential/lab_manifest.json"))["hosts"]
+          targets = [(h["address"], p) for h in hosts for p in h["open_ports"]]
+          deadline = time.time() + 120
+          pending = set(targets)
+          while pending and time.time() < deadline:
+              for addr, port in list(pending):
+                  s = socket.socket(); s.settimeout(1)
+                  if s.connect_ex((addr, port)) == 0:
+                      pending.discard((addr, port))
+                  s.close()
+              if pending:
+                  time.sleep(2)
+          if pending:
+              print("Lab not ready:", pending); sys.exit(1)
+          print("All lab services are up.")
+          PY
+      - name: Run differential validation
+        env:
+          PORTWATCH_LAB: "1"
+        run: python -m pytest tests/test_differential.py -q -p no:cacheprovider
+      - name: Generate differential report
+        env:
+          PORTWATCH_LAB: "1"
+        run: python tests/differential/report.py
+      - name: Upload differential report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-report
+          path: |
+            backend/tests/differential/report.md
+            backend/tests/differential/report.json
+      - name: Tear down the lab
+        if: always()
+        working-directory: .
+        run: docker compose -f docker/lab/docker-compose.lab.yml down -v
+
+  # ── CVE knowledge base vs the authoritative NVD record (needs network) ─────
+  cve-nvd:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Cross-check CVE knowledge base against NVD
+        env:
+          PORTWATCH_NVD: "1"
+        run: python -m pytest tests/test_cve_validation.py -q -p no:cacheprovider
