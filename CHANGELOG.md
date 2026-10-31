@@ -1,5 +1,58 @@
 # Changelog
 
+## Validation and wiring pass
+
+This one was about making the scanner's claims checkable by something other than
+the scanner, and finishing the features that were half-wired.
+
+### Checking the scanner against the outside world
+
+- Added a reference lab (`docker/lab/`): six services in known states, each on
+  its own loopback address. One of them is Apache 2.4.49 left open to
+  CVE-2021-41773 on purpose, so the live NSE script has a real positive to catch.
+- Added a differential harness (`backend/tests/differential/`) that runs the real
+  nmap engine against the lab and compares it to an independent socket prober, and
+  to a second scanner (RustScan, naabu, masscan) when one is installed. It fails
+  if the lab stops matching its manifest. See `docs/DIFFERENTIAL.md`.
+- Added an NVD cross-check (`backend/tests/cve_validation.py`) for the CVE
+  knowledge base. It found three version-range off-by-ones (Apache 2.4.49,
+  OpenSSH 7.4, ProFTPD 1.3.5a were flagged although those are the fixed releases)
+  and two severity labels that didn't match their CVSS score. All fixed.
+
+### Scoring
+
+- Replaced the three-bucket port-count model with a per-service criticality
+  table. On the reference corpus this removed all seven rank inversions and took
+  the correlation with analyst severity from -0.91 to -1.0. The breakdown stays
+  line-by-line. (A perfect rank on twelve hosts is an in-sample fit; the
+  differential run is the real check.)
+
+### Finishing the pentest layer
+
+- The authorization, findings, asset, and recon endpoints had tables and a
+  blueprint but no ORM models and no registration, so they all 404'd. Added the
+  four models, the missing auth decorators (`require_role`, `require_superadmin`,
+  `require_pentest_auth`, and the superadmin helpers), and registered the
+  blueprints.
+- Built the authorizations screen (consent gate with an admin approval flow) and
+  the findings tracker (filter, status/assignee updates, generate from a scan).
+
+### Cleanup and accessibility
+
+- Deleted the stale top-level copies of the core modules that shadowed the
+  canonical ones under `services/`. One source of truth now.
+- Frontend accessibility: labelled the icon-only nav, trapped and restored focus
+  in modals, gave the charts text alternatives, tied the auth form labels to
+  their inputs, and added a skip link.
+
+### Tests
+
+- Fixed the two migration tests that expected a stale head revision, and the
+  pentest API-gate tests that were failing because the feature wasn't wired.
+- Suite: **146 passing**, with two integration gates (`PORTWATCH_LAB`,
+  `PORTWATCH_NVD`) that stay skipped until you opt in. CI runs all three as
+  separate jobs.
+
 ## Hardening & quality pass (v2.2)
 
 A governance-first improvement pass over PortWatch Pro v2.1. Ten auditable

@@ -17,6 +17,68 @@ Alembic migrations, PostgreSQL support, and a CI-backed test suite.
 
 ---
 
+## What this pass added
+
+The first versions of this project trusted their own output. The scanner graded a
+host, and the only thing checking that grade was a corpus I had written from the
+scanner's own behaviour. That is a circular check. It catches regressions, but it
+can't tell you the scanner is actually right about a real machine. Most of this
+pass went into checking the scanner against things that don't share its code.
+
+**A real lab, scanned for real.** `docker/lab/` brings up six services in known
+states: a hardened nginx, an Apache 2.4.49 box left open to CVE-2021-41773 on
+purpose, an unauthenticated Redis, a no-auth MongoDB, an exposed Postgres, and a
+plaintext FTP server. Each sits on its own loopback address, so scanning them is
+allowed by construction (they run on my own machine). The harness in
+`backend/tests/differential/` runs the real nmap engine against that lab and
+compares what it finds to a plain socket prober that shares no code with
+PortWatch. If RustScan or naabu happens to be installed, it gets pulled in as a
+third opinion. The run fails loudly when the lab and its manifest disagree, so a
+half-booted container can't slip through. Details in `docs/DIFFERENTIAL.md`.
+
+**The CVE data is checked against NVD.** The knowledge base used to assert CVSS
+scores and version ranges on its own authority. `backend/tests/cve_validation.py`
+now cross-checks every CVE it claims against the live NVD record, and the regex
+version boundaries are pinned by positive and negative banner tables. That turned
+up five real bugs in the matcher, all now fixed: three version-range off-by-ones
+(it flagged Apache 2.4.49, OpenSSH 7.4, and ProFTPD 1.3.5a, which are the
+*patched* releases) and two severity labels that disagreed with their own CVSS
+score.
+
+**The risk score now ranks the way an analyst would.** The old model sorted open
+ports into three buckets, so a host with a pile of harmless ports could outscore
+one running an exposed database. On the twelve-host reference corpus it disagreed
+with the analyst ordering seven times. I replaced it with a per-service
+criticality table: data stores weigh heaviest, cleartext and remote-admin next,
+web and DNS lightest. The disagreements went to zero and the rank correlation to
+-1.0. I want to be straight about that number. A perfect rank on twelve
+hand-labelled hosts is a strong fit to that sample, not proof the model is right
+in general. The live differential run is the out-of-sample test.
+
+**The pentest layer actually works now.** The authorization, findings, asset, and
+recon features had database tables and an API blueprint, but the ORM models were
+missing and the blueprint was never registered, so those endpoints all returned
+404. I added the four models, the missing auth decorators, and registered the
+blueprints. Then I built the two screens that matter most: an authorizations page
+(the consent gate, with an admin approval flow) and a findings tracker where you
+can filter by project, status, and severity, change status and assignee, and
+generate findings straight from a completed scan.
+
+**Housekeeping.** The tree carried two copies of the core modules (scanner,
+scoring, and the rest): one under `services/`, and a stale duplicate at the top
+level that shadowed it whenever the import path wasn't set up just so. It had
+already bitten me once mid-pass by regenerating a report from the wrong scoring
+model. I deleted the dead copies so there is one source of truth. I also went back
+through the frontend for accessibility: labels on the icon-only nav, a focus trap
+in modals that restores focus on close, text alternatives on the charts, auth form
+labels wired to their fields, and a skip link.
+
+The suite sits at 146 passing, plus two integration gates that stay skipped until
+you bring up the lab (`PORTWATCH_LAB=1`) or allow the NVD lookup
+(`PORTWATCH_NVD=1`).
+
+---
+
 ## Why it exists
 
 Organisations lose track of what they expose to the internet. A port opened for
@@ -45,6 +107,8 @@ with reports they can hand to a client.
 | **Scan comparison** | Diff any two scans of a target: ports opened or closed, service changes, score movement. |
 | **Reporting** | One-click branded HTML report, print-to-PDF ready, with the intel and OWASP sections included. |
 | **Accounts** | Register and login with scrypt-hashed passwords, 1-hour access tokens with rotating refresh tokens, sign out everywhere, change and reset password, revocable API keys for scripted scanning. |
+| **Findings tracker** | Turns a completed scan's intelligence into tracked findings and works them through a remediation lifecycle. Filter by project, status or severity, reassign them, and verify fixes against a later scan. |
+| **Authorizations** | A signed engagement consent record per project. Active tests run only against a target that an approved, in-date authorization covers; non-admins file one and an admin approves it. |
 | **Audit log** | Append-only record of every auth event, scan, project, schedule and channel change, with actor and IP. Admins see all users. |
 | **Operations** | Rate limiting on login, register, reset and scan; security headers; production mode that refuses the default secret; Alembic migrations; PostgreSQL profile with nightly backups; GitHub Actions CI. |
 
@@ -192,20 +256,23 @@ python test_backend.py          # pytest suite + coverage summary
 python -m pytest tests -q
 ```
 
-113 tests: API flow and ownership isolation, the authorisation gate and
-allowlists, token lifecycle, password reset, API keys, rate limiting, audit
-log, background jobs (polling, cancel, timeout, scheduler), the real nmap
-engine through a fake PortScanner, migrations (fresh, legacy 2.0, round trip),
-and unit tests for scoring boundaries, every CVE version regex, diffing and
-notifications. Statement coverage is 88 percent; the remainder is live network
-code (authtest probes, real SMTP).
+146 tests run by default and cover API flow and ownership isolation, the
+authorisation gate and allowlists, the pentest authorization and credential-spray
+gates, token lifecycle, password reset, API keys, rate limiting, the audit log,
+background jobs (polling, cancel, timeout, scheduler), the real nmap engine
+through a fake PortScanner, migrations (fresh, legacy 2.0, round trip), and the
+scoring, CVE-regex, diffing, and notification units.
 
-The UI was verified end-to-end in headless Chromium (login, consent gate,
-allowlist refusal, queued scan to detail, report tab, schedule create and run
-now, API key, password change, audit log, session persistence, forgot and
-reset flow). `.github/workflows/ci.yml` runs the suite on push for Python 3.11
-and 3.12, syntax-checks the frontend, enforces the no-em-dash house style, and
-builds and boots the Docker image.
+Two more tests stay skipped unless you ask for them, because they reach outside
+the process. `PORTWATCH_LAB=1` turns on the differential run against the Docker
+lab (it needs nmap and the lab up), and `PORTWATCH_NVD=1` turns on the NVD
+cross-check (it needs network). Both are wired into CI as their own jobs.
+
+`.github/workflows/ci.yml` runs three jobs on push. The first runs the full
+suite on Python 3.11 and 3.12. The second installs nmap, brings up the reference
+lab, waits for every service to answer, and runs the differential gate, then
+uploads the report it generates. The third runs the NVD cross-check against the
+live API.
 
 ---
 
