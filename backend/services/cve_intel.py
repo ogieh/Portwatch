@@ -22,6 +22,7 @@ Each finding:
 
 import re
 
+_CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.I)
 SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
@@ -142,7 +143,7 @@ def _service_label(port_entry):
     return port_entry.get("version") or port_entry.get("service") or "unknown"
 
 
-def enrich(ports, credential_checks=None):
+def enrich(ports, credential_checks=None, nuclei=None):
     """
     Build the vulnerability-intelligence list for a scan.
     Deduplicated by (port, cve-tuple/title), sorted worst-first.
@@ -199,6 +200,30 @@ def enrich(ports, credential_checks=None):
                 "evidence": f"Port {port} ({p.get('service')}) is open to the scanned network.",
                 "remediation": fix,
             })
+
+    for nf in nuclei or []:
+        refs = nf.get("reference")
+        if isinstance(refs, (list, tuple)):
+            refs = " ".join(str(r) for r in refs)
+        cves = []
+        for c in _CVE_RE.findall(str(refs or "")):
+            c = c.upper()
+            if c not in cves:
+                cves.append(c)
+        sev = str(nf.get("severity") or "").lower()
+        if sev not in SEV_RANK:
+            sev = "info"
+        tid = nf.get("template_id")
+        push({
+            "port": nf.get("port") or 0,
+            "service": nf.get("name") or "web service",
+            "title": nf.get("name") or tid,
+            "severity": sev, "cvss": nf.get("cvss"), "cve": cves,
+            "confidence": "confirmed",
+            "evidence": f"nuclei template {tid} matched at {nf.get('matched_at')}",
+            "remediation": "Review the nuclei template reference, apply the vendor patch or "
+                           "configuration fix, and re-scan to confirm.",
+        })
 
     findings.sort(key=lambda f: (SEV_RANK.get(f["severity"], 9), -(f.get("cvss") or 0)))
     return findings
