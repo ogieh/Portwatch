@@ -177,7 +177,8 @@ def enrich(ports, credential_checks=None, nuclei=None):
         for name, out in scripts.items():
             if not isinstance(out, str) or not out:
                 continue
-            if name in NSE_CVE_MAP and "VULNERABLE" in out.upper():
+            if name in NSE_CVE_MAP and "VULNERABLE" in out.upper() and \
+                    "NOT VULNERABLE" not in out.upper():
                 rec = NSE_CVE_MAP[name]
                 push({
                     "port": port, "service": label, "title": rec["title"],

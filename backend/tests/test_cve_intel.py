@@ -113,3 +113,13 @@ def test_nuclei_none_or_empty_changes_nothing():
     base = cve_intel.enrich(ports)
     assert cve_intel.enrich(ports, None, nuclei=None) == base
     assert cve_intel.enrich(ports, None, nuclei=[]) == base
+
+
+def test_not_vulnerable_nse_output_is_not_confirmed():
+    neg = [port(445, "microsoft-ds", "Samba", scripts={
+        "smb-vuln-ms17-010": "NOT VULNERABLE: host patched"})]
+    out = cve_intel.enrich(neg)
+    assert "CVE-2017-0143" not in str(out)
+    pos = [port(445, "microsoft-ds", "Samba", scripts={
+        "smb-vuln-ms17-010": "VULNERABLE: MS17-010"})]
+    assert "CVE-2017-0143" in str(cve_intel.enrich(pos))
