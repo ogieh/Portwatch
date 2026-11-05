@@ -11,9 +11,14 @@ The real engine is byte-for-byte the proven original where it matters:
 same phase-1 arguments, same NSE bundle, same timeouts, same output dict.
 """
 
+import re
 import shutil
 import random
 import hashlib
+
+import port_sweep
+import nuclei_scan
+from core.config import Config
 
 try:
     import nmap
@@ -140,9 +145,26 @@ def _real_scan(target, profile, credential_checks, scan_type="connect",
     _check_nmap_available()
     stype = scan_type_flag(scan_type)
 
+    # Optional discovery stage: a fast sweeper finds open ports, nmap fingerprints them.
+    sweeper = None
+    sweep_hits = {}
+    try:
+        sweeper = port_sweep.available_sweeper(getattr(Config, "PORT_SWEEPER", None))
+        if sweeper is not None:
+            # cancel_check is polled right after discovery, not inside the sweep,
+            # so the existing phase-boundary cancellation sequence is unchanged.
+            sweep_hits = port_sweep.sweep(
+                target, profile_cfg["sweep_range"], _SWEEP_TIMEOUT) or {}
+    except Exception:
+        sweep_hits = {}
+    phase1_args = profile_cfg["phase1_arguments"]
+    if sweep_hits:
+        csv = ",".join(str(p) for p in sorted(sweep_hits))
+        phase1_args = re.sub(r"--top-ports \d+", f"-p {csv}", phase1_args)
+
     scanner = nmap.PortScanner()
     try:
-        scanner.scan(target, arguments=f"{stype} {profile_cfg['phase1_arguments']}")
+        scanner.scan(target, arguments=f"{stype} {phase1_args}")
     except nmap.PortScannerError as e:
         raise RuntimeError(f"Nmap failed to run: {e}")
 
@@ -170,11 +192,31 @@ def _real_scan(target, profile, credential_checks, scan_type="connect",
                 "version": service_display,
                 "risk": RISK_NOTES.get(port, DEFAULT_RISK),
                 "scripts": {},
+                "seen_by": sorted(set(sweep_hits.get(port, ())) | {"nmap"}),
             })
             if state == "open" and port in WEB_PORTS_FOR_SCRIPTS:
                 open_web_ports.append(port)
             if state == "open" and port in DB_PORTS_FOR_SCRIPTS:
                 open_db_ports.append(port)
+
+    # Ports only the sweeper saw (nmap could not fingerprint them) still appear.
+    known = {p["port"] for p in ports_out}
+    for port in sorted(sweep_hits):
+        if port in known:
+            continue
+        ports_out.append({
+            "port": port, "state": "open", "service": "unknown",
+            "version": "unknown",
+            "risk": RISK_NOTES.get(port, DEFAULT_RISK),
+            "scripts": {},
+            "seen_by": sorted(sweep_hits[port]),
+        })
+        if port in WEB_PORTS_FOR_SCRIPTS:
+            open_web_ports.append(port)
+        if port in DB_PORTS_FOR_SCRIPTS:
+            open_db_ports.append(port)
+    ports_out.sort(key=lambda p: p["port"])
+    _set_confidence(ports_out)
 
     if cancel_check():
         raise ScanCancelled("Scan cancelled after port discovery")
@@ -222,6 +264,26 @@ def _real_scan(target, profile, credential_checks, scan_type="connect",
     if cancel_check():
         raise ScanCancelled("Scan cancelled before credential checks")
 
+    nuclei_findings = []
+    if cancel_check():
+        raise ScanCancelled("Scan cancelled before nuclei stage")
+    nuclei_mode = str(getattr(Config, "NUCLEI_ENABLED", "auto")).lower()
+    if nuclei_mode != "off":
+        try:
+            nres = nuclei_scan.run_nuclei(
+                target, open_web_ports,
+                min_severity=Config.NUCLEI_MIN_SEVERITY,
+                tags=Config.NUCLEI_TAGS,
+                timeout=Config.NUCLEI_TIMEOUT,
+                cancel_check=cancel_check)
+            if nres.get("enabled"):
+                nuclei_findings = list(nres.get("findings") or [])
+        except ScanCancelled:
+            raise
+        except Exception:
+            nuclei_findings = []
+    _annotate_nuclei(ports_out, nuclei_findings)
+
     credential_result = None
     if credential_checks:
         try:
@@ -240,7 +302,28 @@ def _real_scan(target, profile, credential_checks, scan_type="connect",
         "ports": ports_out,
         "summary": generate_summary(target, ports_out),
         "engine": "nmap",
+        "nuclei": nuclei_findings,
     }
+
+
+_SWEEP_TIMEOUT = 300
+
+
+def _set_confidence(ports_out):
+    for p in ports_out:
+        p["confidence"] = "confirmed" if len(p["seen_by"]) >= 2 else "single-engine"
+
+
+def _annotate_nuclei(ports_out, findings):
+    by_port = {p["port"]: p for p in ports_out}
+    for f in findings:
+        entry = by_port.get(f.get("port"))
+        if entry is None:
+            continue
+        key = f"nuclei:{f.get('template_id', '')}"
+        entry["scripts"][key] = (
+            f"[{f.get('severity', '')}] {f.get('name', '')} at {f.get('matched_at', '')}"
+        )
 
 
 def _merge_script_results(nmap_scanner, resolved_host, ports_out):
@@ -299,6 +382,9 @@ def _seeded_rng(target, profile):
 
 def _simulate_scan(target, profile, credential_checks):
     rng = _seeded_rng(target, profile)
+    # Separate stream so seen_by never shifts the established simulation draws
+    # (scoring calibration depends on them).
+    engine_rng = _seeded_rng(target, profile + "|engines")
     pool = _PROFILE_PORT_POOL[profile]
 
     # Decide how many ports look open, deterministic per target.
@@ -318,6 +404,9 @@ def _simulate_scan(target, profile, credential_checks):
             "version": rng.choice(versions) if is_open else name,
             "risk": RISK_NOTES.get(port, DEFAULT_RISK),
             "scripts": {},
+            "seen_by": (sorted(engine_rng.sample(["naabu", "nmap", "rustscan"],
+                                                 engine_rng.randint(1, 3)))
+                        if is_open else ["nmap"]),
         })
         if is_open and port in WEB_PORTS_FOR_SCRIPTS:
             open_web_ports.append(port)
@@ -326,6 +415,10 @@ def _simulate_scan(target, profile, credential_checks):
 
     if SCAN_PROFILES[profile]["scripts_enabled"]:
         _simulate_scripts(rng, ports_out, open_web_ports, open_db_ports, credential_checks)
+
+    _set_confidence(ports_out)
+    nuclei_findings = nuclei_scan.simulate_nuclei(target, open_web_ports)
+    _annotate_nuclei(ports_out, nuclei_findings)
 
     credential_result = None
     if credential_checks:
@@ -339,6 +432,7 @@ def _simulate_scan(target, profile, credential_checks):
         "ports": ports_out,
         "summary": generate_summary(target, ports_out),
         "engine": "simulated",
+        "nuclei": nuclei_findings,
     }
 
 
