@@ -79,6 +79,9 @@ LOGIN_NO_THROTTLE_CAP = 24
 DB_AUTH_PENALTY = 20            # per DB auth failure (empty password / cracked creds)
 DB_AUTH_CAP = 40
 
+NUCLEI_SEVERITY_PENALTY = {"critical": 25, "high": 18, "medium": 8, "low": 3, "info": 0}
+NUCLEI_PENALTY_CAP = 45
+
 GRADE_BANDS = [
     (90, "A"),
     (75, "B"),
@@ -113,7 +116,7 @@ def _script_output(port, name):
     return out if isinstance(out, str) else ""
 
 
-def compute_risk(ports, credential_checks=None):
+def compute_risk(ports, credential_checks=None, nuclei=None):
     """
     Returns {"score": int 0-100, "grade": str, "breakdown": [...]}
     where breakdown lists every deduction so the score is auditable.
@@ -213,6 +216,18 @@ def compute_risk(ports, credential_checks=None):
     total_deducted += add_capped(
         f"{len(db_auth_failures)} database auth failure(s)",
         len(db_auth_failures) * DB_AUTH_PENALTY, DB_AUTH_CAP)
+
+    # ---- Nuclei template findings, severity-weighted, one auditable line ----
+    counts = {}
+    nuclei_points = 0
+    for f in nuclei or []:
+        sev = str(f.get("severity", "")).lower()
+        counts[sev] = counts.get(sev, 0) + 1
+        nuclei_points += NUCLEI_SEVERITY_PENALTY.get(sev, 0)
+    by_sev = ", ".join(f"{counts[s]} {s}" for s in NUCLEI_SEVERITY_PENALTY if s in counts)
+    total_deducted += add_capped(
+        f"{sum(counts.values())} nuclei finding(s) ({by_sev})",
+        nuclei_points, NUCLEI_PENALTY_CAP)
 
     score = max(0, min(100, 100 - total_deducted))
 

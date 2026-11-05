@@ -95,3 +95,24 @@ def test_non_string_script_output_is_ignored():
     ports = [port(80, scripts={"http-vuln-cve2021-41773": {"weird": "VULNERABLE"}})]
     # Port 80 criticality 3; the non-string script output is not counted.
     assert scoring.compute_risk(ports)["score"] == 97
+
+
+def test_nuclei_findings_deduct_points():
+    base = scoring.compute_risk([], None)["score"]
+    with_f = scoring.compute_risk([], None, nuclei=[{"severity": "critical"}])["score"]
+    assert with_f < base
+
+
+def test_nuclei_penalty_capped_and_nonnegative():
+    many = [{"severity": "critical"}] * 20
+    r = scoring.compute_risk([], None, nuclei=many)
+    assert r["score"] >= 0
+    cap_line = [b for b in r["breakdown"] if "nuclei" in b["reason"].lower()][0]
+    assert -cap_line["points"] <= scoring.NUCLEI_PENALTY_CAP
+
+
+def test_nuclei_none_or_empty_adds_no_line():
+    base = scoring.compute_risk([], None)
+    for n in (None, [], [{"severity": "info"}]):
+        r = scoring.compute_risk([], None, nuclei=n)
+        assert r == base
