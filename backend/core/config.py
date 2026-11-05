@@ -105,6 +105,16 @@ class Config:
         "standard": _int(os.environ.get("PORTWATCH_MAX_STANDARD"), 600),
         "deep": _int(os.environ.get("PORTWATCH_MAX_DEEP"), 1800),
     }
+    # Port sweeper for the pre-scan host sweep: auto|rustscan|naabu|masscan|off.
+    PORT_SWEEPER = (os.environ.get("PORTWATCH_PORT_SWEEPER") or "auto").strip().lower()
+    # nuclei template scanning: auto|on|off.
+    NUCLEI_ENABLED = (os.environ.get("PORTWATCH_NUCLEI") or "auto").strip().lower()
+    # Lowest nuclei finding severity to keep.
+    NUCLEI_MIN_SEVERITY = (os.environ.get("PORTWATCH_NUCLEI_SEVERITY") or "low").strip().lower()
+    # Optional comma-separated nuclei template tags to restrict the run.
+    NUCLEI_TAGS = os.environ.get("PORTWATCH_NUCLEI_TAGS") or ""
+    # nuclei run timeout, seconds.
+    NUCLEI_TIMEOUT = _int(os.environ.get("PORTWATCH_NUCLEI_TIMEOUT"), 600)
 
     # ---- Scheduler ----
     SCHEDULER_ENABLED = _bool(os.environ.get("PORTWATCH_SCHEDULER"), default=True)
