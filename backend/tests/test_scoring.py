@@ -95,3 +95,44 @@ def test_non_string_script_output_is_ignored():
     ports = [port(80, scripts={"http-vuln-cve2021-41773": {"weird": "VULNERABLE"}})]
     # Port 80 criticality 3; the non-string script output is not counted.
     assert scoring.compute_risk(ports)["score"] == 97
+
+
+def test_nuclei_findings_deduct_points():
+    base = scoring.compute_risk([], None)["score"]
+    with_f = scoring.compute_risk([], None, nuclei=[{"severity": "critical"}])["score"]
+    assert with_f < base
+
+
+def test_nuclei_penalty_capped_and_nonnegative():
+    many = [{"severity": "critical"}] * 20
+    r = scoring.compute_risk([], None, nuclei=many)
+    assert r["score"] >= 0
+    cap_line = [b for b in r["breakdown"] if "nuclei" in b["reason"].lower()][0]
+    assert -cap_line["points"] <= scoring.NUCLEI_PENALTY_CAP
+
+
+def test_nuclei_none_or_empty_adds_no_line():
+    base = scoring.compute_risk([], None)
+    for n in (None, [], [{"severity": "info"}]):
+        r = scoring.compute_risk([], None, nuclei=n)
+        assert r == base
+
+
+def test_anonymous_ftp_penalty():
+    r = scoring.compute_risk([port(21, service="ftp", scripts={"ftp-anon": "Anonymous FTP login allowed (FTP code 230)"})])
+    lines = [b for b in r["breakdown"] if "anonymous FTP" in b["reason"]]
+    assert len(lines) == 1 and lines[0]["points"] == -8
+
+
+def test_ftp_anon_denied_not_penalised():
+    r = scoring.compute_risk([port(21, service="ftp", scripts={"ftp-anon": "Login failed"})])
+    assert not [b for b in r["breakdown"] if "anonymous FTP" in b["reason"]]
+
+
+def test_smb_vuln_penalty_and_cap():
+    vuln = {"smb-vuln-ms17-010": "VULNERABLE:\n  Remote Code Execution"}
+    r = scoring.compute_risk([port(445, service="microsoft-ds", scripts=vuln)])
+    lines = [b for b in r["breakdown"] if "SMB" in b["reason"]]
+    assert len(lines) == 1 and lines[0]["points"] == -20
+    r2 = scoring.compute_risk([port(445, scripts=vuln), port(139, scripts=vuln), port(1445, scripts=vuln)])
+    assert [b for b in r2["breakdown"] if "SMB" in b["reason"]][0]["points"] == -30

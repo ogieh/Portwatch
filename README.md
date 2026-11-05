@@ -77,6 +77,60 @@ The suite sits at 146 passing, plus two integration gates that stay skipped unti
 you bring up the lab (`PORTWATCH_LAB=1`) or allow the NVD lookup
 (`PORTWATCH_NVD=1`).
 
+### Scanner accuracy: discovery, confidence and nuclei
+
+This pass widened what the scanner can see and made it say how sure it is. Every
+new tool is optional. If it is not installed the scan runs exactly as before,
+with no error and no warning. All of it sits behind the same authorisation gate
+as every other scan.
+
+**Discovery then detection.** nmap is good at identifying what a service is but
+slow at covering many ports. Dedicated sweepers are the reverse. So when
+`rustscan`, `naabu` or `masscan` is on the PATH, it sweeps a profile-defined
+range first (quick: top 100 ports, standard: top 1000, deep: all 65535). nmap
+`-sV` then runs only against the ports the sweeper found open. You get the wider
+coverage at sweeper speed and keep nmap's service and version detection. Ports
+that only the sweeper saw (nmap could not fingerprint them) still appear in the
+results. With no sweeper installed, nmap scans its top-ports list as it always
+did.
+
+**Per-port confidence.** Every port now carries `seen_by` (the engines that saw
+it open, for example `["nmap", "rustscan"]`) and `confidence`: `confirmed` when
+two or more independent engines agree, `single-engine` otherwise. This tells you
+how far to trust a detection. It is informational and is deliberately *not* fed
+into the risk score, so the score stays deterministic and auditable.
+
+**nuclei integration.** An open port says little about whether anything is
+actually wrong. After services are found, `nuclei` runs templated checks against
+the open web services (HTTPS is assumed on 443, 8443 and 9443, HTTP otherwise).
+Findings at or above the configured severity feed the risk score as one
+severity-weighted line (critical 25, high 18, medium 8, low 3 points), capped at
+45 so a noisy template set cannot zero a host. They appear in the CVE
+intelligence list with `confirmed` confidence, because a tool matched them
+rather than a banner guess, and are attached to the matching port's `scripts`
+output as `nuclei:<template-id>`.
+
+**NSE scripts.** The NSE bundle was expanded with protocol-level checks that
+nuclei's web templates do not cover: `ssl-poodle` on TLS ports, `ftp-anon` on
+port 21, and `smb-os-discovery` / `smb-vuln-ms17-010` on port 445. Nuclei adds
+the broader web template coverage on top.
+
+**Graceful degradation.** A missing sweeper, a missing nuclei, a tool that
+fails or times out, or a malformed output line all fall back silently to the
+previous behaviour. Cancelling a scan is still honoured between stages. In
+simulation mode, `seen_by` and nuclei findings are generated deterministically
+per target so the whole feature is demonstrable without any tools.
+
+New environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PORTWATCH_PORT_SWEEPER` | `auto` | `auto` uses the first of rustscan, naabu, masscan found on PATH; name one to force it; `off` disables the sweep stage |
+| `PORTWATCH_NUCLEI` | `auto` | `auto` runs nuclei if installed; `off` disables it |
+| `PORTWATCH_NUCLEI_SEVERITY` | `low` | Lowest severity kept (`info`, `low`, `medium`, `high`, `critical`) |
+| `PORTWATCH_NUCLEI_TAGS` | empty | Comma-separated nuclei template tags to restrict the run (empty runs the default templates) |
+| `PORTWATCH_NUCLEI_TIMEOUT` | `600` | nuclei run timeout in seconds |
+
 ---
 
 ## Why it exists
@@ -94,6 +148,9 @@ with reports they can hand to a client.
 | Area | What it does |
 |------|--------------|
 | **Scanning** | Two-phase nmap engine, three depth profiles (quick / standard / deep), NSE web + database scripts, TCP connect or SYN mode. Falls back to a realistic **simulation engine** when nmap is not installed, so it demos anywhere. |
+| **Discovery then detection** | An optional fast port sweeper (rustscan, naabu or masscan, auto-detected) finds open ports across a wider range, then nmap `-sV` fingerprints only those. Deep scans can cover all 65535 ports. |
+| **Per-port confidence** | Each port reports which engines saw it (`seen_by`) and a `confidence` of `confirmed` or `single-engine`. Informational only; it does not change the risk score. |
+| **nuclei checks** | Optional templated vulnerability checks against open web services. Findings are scored (severity-weighted, capped) and listed as confirmed intel entries. |
 | **Background execution** | Every scan runs in a worker pool, not the request. The UI polls, shows live status, and can cancel. Each profile has a hard time ceiling. |
 | **Authorisation gate** | A scan is refused unless the requester confirms authorisation; consent is stored with the scan and audited. Projects can carry a target allowlist that scans and schedules must stay inside. |
 | **Risk scoring** | Deterministic, auditable 100-point model with letter grades (A to F). Every deduction is shown line by line. |
@@ -208,6 +265,7 @@ you will meet first:
 | `PORTWATCH_SIMULATE` | off | Force simulated scans |
 | `PORTWATCH_NMAP_SCAN_TYPE` | `connect` | `connect` or `syn` |
 | `PORTWATCH_SCHEDULER` | on | Enable the background scheduler |
+| `PORTWATCH_PORT_SWEEPER`, `PORTWATCH_NUCLEI`, `PORTWATCH_NUCLEI_*` | `auto` | Optional sweeper and nuclei integration (see *Scanner accuracy* above) |
 | `PORTWATCH_SMTP_*` | unset | SMTP for email alerts and password-reset mail (webhooks work without it) |
 
 ---
@@ -289,7 +347,7 @@ portwatch-pro/
 │   ├── core/                # config, security (JWT/refresh/API keys), ratelimit, migrate
 │   ├── models/              # SQLAlchemy models
 │   ├── api/                 # blueprints (auth, projects, scans, dashboard, schedules, notifications, audit)
-│   ├── services/            # engine, scoring, intel, scan_service, scan_jobs, scheduler, notifier, report, audit
+│   ├── services/            # engine, port_sweep, nuclei_scan, scoring, intel, scan_service, scan_jobs, scheduler, notifier, report, audit
 │   └── tests/               # pytest suite
 ├── frontend/                # SPA (index.html, css/, js/, assets/)
 ├── docker/                  # Dockerfile, backup.sh

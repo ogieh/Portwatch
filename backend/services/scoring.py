@@ -74,10 +74,18 @@ MISSING_HEADER_CAP = 12
 DANGEROUS_METHOD_PENALTY = 6  # per port allowing PUT/DELETE/TRACE/CONNECT
 DANGEROUS_METHOD_CAP = 12
 
+FTP_ANON_PENALTY = 8          # per port where ftp-anon reports anonymous login allowed
+FTP_ANON_CAP = 8
+SMB_VULN_PENALTY = 20         # per smb-vuln-* script reporting VULNERABLE
+SMB_VULN_CAP = 30
+
 LOGIN_NO_THROTTLE_PENALTY = 12  # per login endpoint with no observed rate limit
 LOGIN_NO_THROTTLE_CAP = 24
 DB_AUTH_PENALTY = 20            # per DB auth failure (empty password / cracked creds)
 DB_AUTH_CAP = 40
+
+NUCLEI_SEVERITY_PENALTY = {"critical": 25, "high": 18, "medium": 8, "low": 3, "info": 0}
+NUCLEI_PENALTY_CAP = 45
 
 GRADE_BANDS = [
     (90, "A"),
@@ -113,7 +121,7 @@ def _script_output(port, name):
     return out if isinstance(out, str) else ""
 
 
-def compute_risk(ports, credential_checks=None):
+def compute_risk(ports, credential_checks=None, nuclei=None):
     """
     Returns {"score": int 0-100, "grade": str, "breakdown": [...]}
     where breakdown lists every deduction so the score is auditable.
@@ -147,12 +155,21 @@ def compute_risk(ports, credential_checks=None):
     weak_dh_ports = 0
     header_hits = 0
     method_ports = 0
+    ftp_anon_ports = 0
+    smb_vuln_count = 0
 
     for p in open_ports:
         for name, out in p.get("scripts", {}).items():
             if isinstance(out, str) and out and name.startswith("http-vuln-") \
                     and "VULNERABLE" in out.upper():
                 vuln_count += 1
+
+        for name, out in p.get("scripts", {}).items():
+            if isinstance(out, str) and name.startswith("smb-vuln-")                     and "VULNERABLE" in out.upper() and "NOT VULNERABLE" not in out.upper():
+                smb_vuln_count += 1
+
+        if "anonymous ftp login allowed" in _script_output(p, "ftp-anon").lower():
+            ftp_anon_ports += 1
 
         cipher_out = _script_output(p, "ssl-enum-ciphers").lower()
         if cipher_out and any(w in cipher_out for w in WEAK_CIPHER_WORDS):
@@ -197,6 +214,13 @@ def compute_risk(ports, credential_checks=None):
         f"{method_ports} port(s) with dangerous HTTP methods",
         method_ports * DANGEROUS_METHOD_PENALTY, DANGEROUS_METHOD_CAP)
 
+    total_deducted += add_capped(
+        f"{ftp_anon_ports} port(s) allowing anonymous FTP login",
+        ftp_anon_ports * FTP_ANON_PENALTY, FTP_ANON_CAP)
+    total_deducted += add_capped(
+        f"{smb_vuln_count} vulnerable SMB script hit(s)",
+        smb_vuln_count * SMB_VULN_PENALTY, SMB_VULN_CAP)
+
     # ---- Opt-in credential & lockout check deductions (A07 territory) ----
     cc = credential_checks or {}
     unprotected = [
@@ -213,6 +237,18 @@ def compute_risk(ports, credential_checks=None):
     total_deducted += add_capped(
         f"{len(db_auth_failures)} database auth failure(s)",
         len(db_auth_failures) * DB_AUTH_PENALTY, DB_AUTH_CAP)
+
+    # ---- Nuclei template findings, severity-weighted, one auditable line ----
+    counts = {}
+    nuclei_points = 0
+    for f in nuclei or []:
+        sev = str(f.get("severity", "")).lower()
+        counts[sev] = counts.get(sev, 0) + 1
+        nuclei_points += NUCLEI_SEVERITY_PENALTY.get(sev, 0)
+    by_sev = ", ".join(f"{counts[s]} {s}" for s in NUCLEI_SEVERITY_PENALTY if s in counts)
+    total_deducted += add_capped(
+        f"{sum(counts.values())} nuclei finding(s) ({by_sev})",
+        nuclei_points, NUCLEI_PENALTY_CAP)
 
     score = max(0, min(100, 100 - total_deducted))
 

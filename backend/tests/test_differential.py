@@ -90,3 +90,26 @@ def test_differential_against_oracle():
     # The deliberately-planted CVE must be caught by the live NSE scripts.
     cve = result["cve_detection"]
     assert cve["recall"] == 1.0, f"planted CVE not detected: {cve}"
+
+
+@pytest.mark.skipif(not LAB_ENABLED,
+                    reason="set PORTWATCH_LAB=1 and bring up docker/lab to run")
+def test_port_sweep_agrees_with_oracle():
+    """Production port_sweep discovery must agree with the independent socket
+    oracle on every lab host. Skips when no sweeper (rustscan/naabu/masscan)
+    is installed. Both are imported here, never inside independent_scanner."""
+    from services import port_sweep
+
+    if port_sweep.available_sweeper() is None:
+        pytest.skip("no port sweeper (rustscan/naabu/masscan) installed")
+
+    manifest = harness.load_manifest()
+    universe = harness.candidate_universe(manifest)
+    spec = ",".join(str(p) for p in universe)
+    for host in manifest["hosts"]:
+        addr = host["address"]
+        oracle = independent_scanner.probe_ports(addr, universe)
+        swept = set(port_sweep.sweep(addr, spec, timeout=120)) & set(universe)
+        assert swept == oracle, (
+            f"{host['name']}: sweeper {sorted(swept)} != oracle {sorted(oracle)}"
+        )

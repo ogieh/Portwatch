@@ -45,6 +45,8 @@ def validate_request(project, target, profile, authorised):
         raise ScanRequestError("Target is required")
     if len(target) > 255 or any(c.isspace() for c in target):
         raise ScanRequestError("Target must be a single hostname or IP address")
+    if target.startswith("-"):
+        raise ScanRequestError("Target must not start with '-'")
     if profile not in scanner.SCAN_PROFILES:
         raise ScanRequestError(
             f"Unknown scan profile '{profile}'. Valid profiles: "
@@ -90,9 +92,10 @@ def request_scan(project, target, profile="standard", credential_checks=False,
 
 def _enrich(scan_result):
     cc = scan_result.get("credential_checks")
-    scan_result["risk"] = scoring.compute_risk(scan_result["ports"], cc)
+    nuclei = scan_result.get("nuclei")
+    scan_result["risk"] = scoring.compute_risk(scan_result["ports"], cc, nuclei=nuclei)
     scan_result["compliance"] = compliance.generate_compliance_tags(scan_result["ports"], cc)
-    scan_result["intel"] = cve_intel.enrich(scan_result["ports"], cc)
+    scan_result["intel"] = cve_intel.enrich(scan_result["ports"], cc, nuclei=nuclei)
     scan_result["intel_summary"] = cve_intel.summarize(scan_result["intel"])
     return scan_result
 

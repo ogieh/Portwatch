@@ -85,3 +85,41 @@ def test_summarize():
     assert s["confirmed"] == 0
     assert cve_intel.summarize([]) == {"total": 0, "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0},
                                        "unique_cves": [], "confirmed": 0}
+
+
+def test_nuclei_findings_become_confirmed_intel():
+    findings = cve_intel.enrich([], None,
+        nuclei=[{"template_id": "apache-cve-2021-41773", "severity": "critical",
+                 "reference": ["CVE-2021-41773"]}])
+    assert any(f.get("confidence") == "confirmed" for f in findings)
+
+
+def test_nuclei_mapping_and_severity_coercion():
+    findings = cve_intel.enrich([], None, nuclei=[
+        {"template_id": "t1", "name": "Thing", "severity": "unknown", "port": 8080,
+         "matched_at": "http://h:8080/x", "cvss": 9.8,
+         "reference": "see cve-2021-41773 and CVE-2021-41773, CVE-2021-42013"},
+    ])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["severity"] == "info" and f["port"] == 8080 and f["cvss"] == 9.8
+    assert f["cve"] == ["CVE-2021-41773", "CVE-2021-42013"]
+    assert "t1" in f["evidence"] and "http://h:8080/x" in f["evidence"]
+    cve_intel.summarize(findings)
+
+
+def test_nuclei_none_or_empty_changes_nothing():
+    ports = [port(21, "ftp", "vsftpd 2.3.4")]
+    base = cve_intel.enrich(ports)
+    assert cve_intel.enrich(ports, None, nuclei=None) == base
+    assert cve_intel.enrich(ports, None, nuclei=[]) == base
+
+
+def test_not_vulnerable_nse_output_is_not_confirmed():
+    neg = [port(445, "microsoft-ds", "Samba", scripts={
+        "smb-vuln-ms17-010": "NOT VULNERABLE: host patched"})]
+    out = cve_intel.enrich(neg)
+    assert "CVE-2017-0143" not in str(out)
+    pos = [port(445, "microsoft-ds", "Samba", scripts={
+        "smb-vuln-ms17-010": "VULNERABLE: MS17-010"})]
+    assert "CVE-2017-0143" in str(cve_intel.enrich(pos))
