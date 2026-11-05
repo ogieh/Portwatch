@@ -103,3 +103,28 @@ def test_report_is_written(report):
     assert saved["vuln_flags"] == report["vuln_flags"]
     assert saved["calibration"]["in_band"] == report["calibration"]["in_band"]
     assert saved["rank_calibration"]["spearman"] == report["rank_calibration"]["spearman"]
+
+
+@pytest.mark.skipif(os.environ.get("PORTWATCH_LAB") != "1",
+                    reason="set PORTWATCH_LAB=1 and bring up docker/lab to run")
+def test_nuclei_flags_lab_apache_cve_2021_41773():
+    """A real nuclei run must flag CVE-2021-41773 on the lab's Apache 2.4.49.
+    Skips when nuclei is not installed or the lab host is unreachable."""
+    import socket
+    from services import nuclei_scan
+
+    if not nuclei_scan.nuclei_available():
+        pytest.skip("nuclei not installed")
+
+    from tests.differential import harness as lab
+    host = next(h for h in lab.load_manifest()["hosts"] if h["name"] == "apache-vuln")
+    addr = host["address"]
+    try:
+        socket.create_connection((addr, 80), timeout=2).close()
+    except OSError:
+        pytest.skip(f"lab apache-vuln not reachable at {addr}:80")
+
+    res = nuclei_scan.run_nuclei(addr, [80], min_severity="low", timeout=120)
+    assert res["enabled"] and res["engine"] == "nuclei"
+    blob = json.dumps(res["findings"]).upper()
+    assert "CVE-2021-41773" in blob, f"nuclei did not flag the lab Apache: {res}"
