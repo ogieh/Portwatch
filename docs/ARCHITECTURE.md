@@ -129,8 +129,10 @@ nuclei stage after the scripts:
    port gets `seen_by` (engines that saw it) and `confidence` (`confirmed` for
    two or more engines, else `single-engine`); confidence does not enter the
    risk score, which keeps it deterministic.
-2. **Phase 2**: best-effort NSE scripts on open web/DB ports; failures here
-   never wipe out phase-1 results.
+2. **Phase 2**: best-effort NSE scripts on open web/DB ports, plus protocol-level
+   scripts (`ftp-anon` on 21, `smb-os-discovery`/`smb-vuln-ms17-010` on 445;
+   `ssl-poodle` rides the web/TLS bundle) that nuclei's web templates do not
+   cover; failures here never wipe out phase-1 results.
 3. **Nuclei (optional)**: `services/nuclei_scan.py` runs nuclei (`-jsonl`,
    severity floor, optional tags, timeout) against open web ports and
    normalises findings (`template_id`, `severity`, `reference`, `cvss`, ...).
@@ -191,8 +193,9 @@ path.
 API, so it works air-gapped and in a demo. It has three sources, in descending
 confidence:
 
-1. **Script-confirmed**: an NSE `http-vuln-*` script reported VULNERABLE →
-   mapped to its canonical CVE (e.g. CVE-2021-41773).
+1. **Script-confirmed**: an NSE `http-vuln-*` or `smb-vuln-ms17-010` script
+   reported VULNERABLE → mapped to its canonical CVE (e.g. CVE-2021-41773,
+   CVE-2017-0143).
 2. **Version-likely**: a service banner matches a known-vulnerable range via
    regex (e.g. `vsftpd 2.3.4` → CVE-2011-2523 backdoor).
 3. **Exposure guidance**: an inherently risky service is reachable (Redis,

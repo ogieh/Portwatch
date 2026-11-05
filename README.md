@@ -110,9 +110,10 @@ intelligence list with `confirmed` confidence, because a tool matched them
 rather than a banner guess, and are attached to the matching port's `scripts`
 output as `nuclei:<template-id>`.
 
-**NSE scripts.** The existing NSE bundle (web headers, TLS, the Apache and Struts
-CVE checks, database info scripts) is unchanged by this pass; nuclei is what
-adds the broader template coverage.
+**NSE scripts.** The NSE bundle was expanded with protocol-level checks that
+nuclei's web templates do not cover: `ssl-poodle` on TLS ports, `ftp-anon` on
+port 21, and `smb-os-discovery` / `smb-vuln-ms17-010` on port 445. Nuclei adds
+the broader web template coverage on top.
 
 **Graceful degradation.** A missing sweeper, a missing nuclei, a tool that
 fails or times out, or a malformed output line all fall back silently to the

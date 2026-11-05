@@ -44,6 +44,14 @@ NSE_CVE_MAP = {
         "remediation": "Upgrade Apache Struts to 2.3.32 / 2.5.10.1 or later, or remove the "
                        "Jakarta Multipart parser if unused.",
     },
+    "smb-vuln-ms17-010": {
+        "cve": ["CVE-2017-0143"],
+        "title": "SMBv1 remote code execution (EternalBlue, MS17-010)",
+        "severity": "high",
+        "cvss": 8.1,
+        "remediation": "Apply Microsoft security update MS17-010, disable SMBv1, and "
+                       "block TCP 445 from untrusted networks.",
+    },
 }
 
 

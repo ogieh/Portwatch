@@ -74,6 +74,11 @@ MISSING_HEADER_CAP = 12
 DANGEROUS_METHOD_PENALTY = 6  # per port allowing PUT/DELETE/TRACE/CONNECT
 DANGEROUS_METHOD_CAP = 12
 
+FTP_ANON_PENALTY = 8          # per port where ftp-anon reports anonymous login allowed
+FTP_ANON_CAP = 8
+SMB_VULN_PENALTY = 20         # per smb-vuln-* script reporting VULNERABLE
+SMB_VULN_CAP = 30
+
 LOGIN_NO_THROTTLE_PENALTY = 12  # per login endpoint with no observed rate limit
 LOGIN_NO_THROTTLE_CAP = 24
 DB_AUTH_PENALTY = 20            # per DB auth failure (empty password / cracked creds)
@@ -150,12 +155,21 @@ def compute_risk(ports, credential_checks=None, nuclei=None):
     weak_dh_ports = 0
     header_hits = 0
     method_ports = 0
+    ftp_anon_ports = 0
+    smb_vuln_count = 0
 
     for p in open_ports:
         for name, out in p.get("scripts", {}).items():
             if isinstance(out, str) and out and name.startswith("http-vuln-") \
                     and "VULNERABLE" in out.upper():
                 vuln_count += 1
+
+        for name, out in p.get("scripts", {}).items():
+            if isinstance(out, str) and name.startswith("smb-vuln-")                     and "VULNERABLE" in out.upper() and "NOT VULNERABLE" not in out.upper():
+                smb_vuln_count += 1
+
+        if "anonymous ftp login allowed" in _script_output(p, "ftp-anon").lower():
+            ftp_anon_ports += 1
 
         cipher_out = _script_output(p, "ssl-enum-ciphers").lower()
         if cipher_out and any(w in cipher_out for w in WEAK_CIPHER_WORDS):
@@ -199,6 +213,13 @@ def compute_risk(ports, credential_checks=None, nuclei=None):
     total_deducted += add_capped(
         f"{method_ports} port(s) with dangerous HTTP methods",
         method_ports * DANGEROUS_METHOD_PENALTY, DANGEROUS_METHOD_CAP)
+
+    total_deducted += add_capped(
+        f"{ftp_anon_ports} port(s) allowing anonymous FTP login",
+        ftp_anon_ports * FTP_ANON_PENALTY, FTP_ANON_CAP)
+    total_deducted += add_capped(
+        f"{smb_vuln_count} vulnerable SMB script hit(s)",
+        smb_vuln_count * SMB_VULN_PENALTY, SMB_VULN_CAP)
 
     # ---- Opt-in credential & lockout check deductions (A07 territory) ----
     cc = credential_checks or {}

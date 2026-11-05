@@ -116,3 +116,23 @@ def test_nuclei_none_or_empty_adds_no_line():
     for n in (None, [], [{"severity": "info"}]):
         r = scoring.compute_risk([], None, nuclei=n)
         assert r == base
+
+
+def test_anonymous_ftp_penalty():
+    r = scoring.compute_risk([port(21, service="ftp", scripts={"ftp-anon": "Anonymous FTP login allowed (FTP code 230)"})])
+    lines = [b for b in r["breakdown"] if "anonymous FTP" in b["reason"]]
+    assert len(lines) == 1 and lines[0]["points"] == -8
+
+
+def test_ftp_anon_denied_not_penalised():
+    r = scoring.compute_risk([port(21, service="ftp", scripts={"ftp-anon": "Login failed"})])
+    assert not [b for b in r["breakdown"] if "anonymous FTP" in b["reason"]]
+
+
+def test_smb_vuln_penalty_and_cap():
+    vuln = {"smb-vuln-ms17-010": "VULNERABLE:\n  Remote Code Execution"}
+    r = scoring.compute_risk([port(445, service="microsoft-ds", scripts=vuln)])
+    lines = [b for b in r["breakdown"] if "SMB" in b["reason"]]
+    assert len(lines) == 1 and lines[0]["points"] == -20
+    r2 = scoring.compute_risk([port(445, scripts=vuln), port(139, scripts=vuln), port(1445, scripts=vuln)])
+    assert [b for b in r2["breakdown"] if "SMB" in b["reason"]][0]["points"] == -30

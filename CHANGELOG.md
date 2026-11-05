@@ -19,7 +19,10 @@ findings. Every new tool is optional and degrades silently when absent.
   `PORTWATCH_NUCLEI_SEVERITY`, `PORTWATCH_NUCLEI_TAGS`,
   `PORTWATCH_NUCLEI_TIMEOUT`.
 - Simulation engine now emits deterministic `seen_by` and nuclei findings.
-- The NSE script bundle was not expanded in this change.
+- Expanded the NSE bundle with protocol-level checks nuclei's web templates do
+  not cover: `ssl-poodle` (TLS ports), `ftp-anon` (21), `smb-os-discovery` and
+  `smb-vuln-ms17-010` (445, mapped to CVE-2017-0143). Scoring adds capped
+  penalties for anonymous FTP (8) and vulnerable SMB scripts (20 each, cap 30).
 
 ## Validation and wiring pass
 

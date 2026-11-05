@@ -36,6 +36,7 @@ NSE_SCRIPTS = ",".join([
     "ssl-cert", "ssl-enum-ciphers", "ssl-dh-params",
     "http-security-headers", "http-methods", "http-auth-finder",
     "http-vuln-cve2021-41773", "http-vuln-cve2017-5638",
+    "ssl-poodle",
 ])
 
 WEB_PORTS_FOR_SCRIPTS = {80, 443, 8080, 8443}
@@ -49,6 +50,9 @@ DB_CRED_SCRIPTS = {
     3306: "mysql-brute,mysql-empty-password",
     5432: "pgsql-brute", 27017: "mongodb-brute",
 }
+# Protocol-level checks on non-web services; nuclei's web templates don't cover these.
+PROTOCOL_SCRIPTS = {21: "ftp-anon", 445: "smb-os-discovery,smb-vuln-ms17-010"}
+
 DB_PORTS_FOR_SCRIPTS = set(DB_SAFE_SCRIPTS) | set(DB_CRED_SCRIPTS)
 
 SCAN_PROFILES = {
@@ -261,6 +265,26 @@ def _real_scan(target, profile, credential_checks, scan_type="connect",
         except Exception:
             pass
 
+    open_proto_ports = [p["port"] for p in ports_out
+                        if p["state"] == "open" and p["port"] in PROTOCOL_SCRIPTS]
+    if profile_cfg["scripts_enabled"] and open_proto_ports:
+        proto_script_list = sorted({
+            s for p in open_proto_ports for s in PROTOCOL_SCRIPTS[p].split(",")
+        })
+        try:
+            proto_scanner = nmap.PortScanner()
+            proto_scanner.scan(
+                target,
+                arguments=(
+                    f"{stype} -sV -Pn -p {','.join(map(str, open_proto_ports))} "
+                    f"--script {','.join(proto_script_list)} "
+                    f"--host-timeout {profile_cfg['phase2_host_timeout']}"
+                ),
+            )
+            _merge_script_results(proto_scanner, resolved_host, ports_out)
+        except Exception:
+            pass
+
     if cancel_check():
         raise ScanCancelled("Scan cancelled before credential checks")
 
@@ -416,6 +440,8 @@ def _simulate_scan(target, profile, credential_checks):
     if SCAN_PROFILES[profile]["scripts_enabled"]:
         _simulate_scripts(rng, ports_out, open_web_ports, open_db_ports, credential_checks)
 
+        _simulate_protocol_scripts(target, profile, ports_out)
+
     _set_confidence(ports_out)
     nuclei_findings = nuclei_scan.simulate_nuclei(target, open_web_ports)
     _annotate_nuclei(ports_out, nuclei_findings)
@@ -434,6 +460,23 @@ def _simulate_scan(target, profile, credential_checks):
         "engine": "simulated",
         "nuclei": nuclei_findings,
     }
+
+
+def _simulate_protocol_scripts(target, profile, ports_out):
+    """Occasional ftp-anon / smb-vuln-ms17-010 hits, drawn from a separate rng so
+    the main simulation stream (and scoring calibration) is untouched."""
+    proto_rng = _seeded_rng(target, profile + "|protocol")
+    for entry in ports_out:
+        if entry["state"] != "open" or entry["port"] not in PROTOCOL_SCRIPTS:
+            continue
+        hit = proto_rng.random() < 0.3
+        if entry["port"] == 21 and hit:
+            entry["scripts"] = {**entry["scripts"],
+                                "ftp-anon": "Anonymous FTP login allowed (FTP code 230)"}
+        elif entry["port"] == 445 and hit:
+            entry["scripts"] = {**entry["scripts"], "smb-vuln-ms17-010":
+                                "VULNERABLE: Remote Code Execution vulnerability in "
+                                "Microsoft SMBv1 (MS17-010)"}
 
 
 def _simulate_scripts(rng, ports_out, open_web_ports, open_db_ports, credential_checks):
