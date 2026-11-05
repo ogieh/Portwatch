@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-05: Scanner accuracy and nuclei
+
+Wider port coverage, a per-port trust signal, and confirmed vulnerability
+findings. Every new tool is optional and degrades silently when absent.
+
+- Added a discovery stage (`services/port_sweep.py`). rustscan, naabu or masscan
+  (auto-detected) sweeps a profile range (quick top 100, standard top 1000, deep
+  all 65535); nmap `-sV` then runs only on the open ports found. Without a
+  sweeper, nmap top-ports behaves as before.
+- Added `seen_by` and `confidence` (`confirmed` when two or more engines agree,
+  else `single-engine`) to every port. Informational only; the risk score is
+  unchanged by it.
+- Added nuclei integration (`services/nuclei_scan.py`) against open web services.
+  Findings are deducted in the risk score by severity (critical 25, high 18,
+  medium 8, low 3, capped at 45) and appear in CVE intel as `confirmed` entries.
+- Added env vars `PORTWATCH_PORT_SWEEPER`, `PORTWATCH_NUCLEI`,
+  `PORTWATCH_NUCLEI_SEVERITY`, `PORTWATCH_NUCLEI_TAGS`,
+  `PORTWATCH_NUCLEI_TIMEOUT`.
+- Simulation engine now emits deterministic `seen_by` and nuclei findings.
+- The NSE script bundle was not expanded in this change.
+
 ## Validation and wiring pass
 
 This one was about making the scanner's claims checkable by something other than

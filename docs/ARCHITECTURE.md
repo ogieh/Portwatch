@@ -115,12 +115,34 @@ that was never recorded is not invented.
 
 ## 4. The scan engine and simulation
 
-The real engine is the original two-phase model:
+The real engine is the original model with a discovery stage in front and a
+nuclei stage after the scripts:
 
-1. **Phase 1**: fast, reliable port discovery (`-sV -Pn --top-ports N`).
+0. **Discovery (optional)**: `services/port_sweep.py` runs rustscan, naabu or
+   masscan (auto-detected, `PORTWATCH_PORT_SWEEPER`) over the profile's
+   `sweep_range` (top 100 / top 1000 / all ports). *Why:* sweepers cover far
+   more ports far faster than nmap. No sweeper, failure or timeout returns
+   `{}` and the next stage runs as before.
+1. **Phase 1**: nmap detection (`-sV -Pn`). If the sweep found ports, the
+   profile's `--top-ports N` is replaced by `-p <open ports>`, so nmap
+   fingerprints only what is open. Ports only the sweeper saw are kept. Each
+   port gets `seen_by` (engines that saw it) and `confidence` (`confirmed` for
+   two or more engines, else `single-engine`); confidence does not enter the
+   risk score, which keeps it deterministic.
 2. **Phase 2**: best-effort NSE scripts on open web/DB ports; failures here
    never wipe out phase-1 results.
-3. **Phase 3 (opt-in)**: credential/lockout probing.
+3. **Nuclei (optional)**: `services/nuclei_scan.py` runs nuclei (`-jsonl`,
+   severity floor, optional tags, timeout) against open web ports and
+   normalises findings (`template_id`, `severity`, `reference`, `cvss`, ...).
+   `scoring.compute_risk` deducts per severity (capped at 45 points) and
+   `cve_intel.enrich` emits them as `confirmed` entries. Missing nuclei,
+   `PORTWATCH_NUCLEI=off`, errors and timeouts yield no findings, never an
+   error.
+4. **Phase 4 (opt-in)**: credential/lockout probing.
+
+`port_sweep.py` and `nuclei_scan.py` hold their own parsers on purpose: the
+differential harness in `tests/differential/` keeps an independent copy so it
+never shares code with production. Cancellation is checked between stages.
 
 **Simulation** was added because a security scanner is hard to demonstrate:
 examiners' laptops rarely have nmap + root, and scanning real hosts without
@@ -131,6 +153,7 @@ authorisation is illegal. The simulation engine:
 - is **seeded per target** (`sha256(target|profile)`), so a target looks
   consistent across scans, diffs and trends behave realistically;
 - widens what it reveals with deeper profiles, mirroring real nmap behaviour;
+- emits deterministic `seen_by` and nuclei findings (seeded per target);
 - generates plausible NSE script output (weak ciphers, missing headers,
   CVE hits, empty DB passwords) so scoring, compliance and intel all light up.
 
