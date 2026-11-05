@@ -5,9 +5,9 @@ from core.config import Config
 def test_profiles_have_sweep_range():
     for p in ("quick", "standard", "deep"):
         assert "sweep_range" in scanner.SCAN_PROFILES[p]
-    assert scanner.SCAN_PROFILES["quick"]["sweep_range"] == "--top-ports 100"
-    assert scanner.SCAN_PROFILES["standard"]["sweep_range"] == "--top-ports 1000"
-    assert scanner.SCAN_PROFILES["deep"]["sweep_range"] == "-p-"
+    assert scanner.SCAN_PROFILES["quick"]["sweep_range"] == "1-100"
+    assert scanner.SCAN_PROFILES["standard"]["sweep_range"] == "1-1000"
+    assert scanner.SCAN_PROFILES["deep"]["sweep_range"] == "1-65535"
 
 
 def test_config_defaults():

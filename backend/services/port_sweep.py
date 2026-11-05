@@ -64,12 +64,16 @@ def available_sweeper(preference=None):
 
 
 def _command(tool, target, port_spec):
+    """Build argv; port_spec is a neutral range ("1-65535") or comma list."""
+    spec = str(port_spec).strip()
     if tool == "rustscan":
-        return ["rustscan", "-a", target, "-p", port_spec, "--greppable",
+        # rustscan's -r takes a single start-end range; -p takes a list
+        flag = "-r" if re.fullmatch(r"\d+-\d+", spec) else "-p"
+        return ["rustscan", "-a", target, flag, spec, "--greppable",
                 "--no-config"]
     if tool == "naabu":
-        return ["naabu", "-host", target, "-p", port_spec, "-silent"]
-    return ["masscan", target, "-p", port_spec, "--rate", "1000"]
+        return ["naabu", "-host", target, "-p", spec, "-silent"]
+    return ["masscan", target, "-p", spec, "--rate", "1000"]
 
 
 def sweep(target, port_spec, timeout, cancel_check=None):

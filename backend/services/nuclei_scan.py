@@ -128,6 +128,8 @@ def _severity_floor(min_severity):
         s = "low"
     return ",".join(SEVERITIES[SEVERITIES.index(s):])
 
+_REQUEST_TIMEOUT = 10  # seconds, nuclei per-request; `timeout` is the subprocess ceiling
+
 
 def run_nuclei(target, open_web_ports, min_severity="low", tags="", timeout=300,
                cancel_check=None, simulate=False):
@@ -138,7 +140,7 @@ def run_nuclei(target, open_web_ports, min_severity="low", tags="", timeout=300,
         return noop
     try:
         cmd = ["nuclei", "-jsonl", "-silent", "-severity", _severity_floor(min_severity),
-               "-timeout", str(int(timeout))]
+               "-timeout", str(_REQUEST_TIMEOUT)]
         if tags:
             cmd += ["-tags", tags]
         for port in open_web_ports:

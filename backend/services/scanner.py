@@ -62,7 +62,7 @@ SCAN_PROFILES = {
         "phase1_arguments": "-sV -T4 -Pn --top-ports 20 --host-timeout 60s",
         "scripts_enabled": False,
         "phase2_host_timeout": "90s",
-        "sweep_range": "--top-ports 100",
+        "sweep_range": "1-100",
     },
     "standard": {
         "label": "Standard",
@@ -70,7 +70,7 @@ SCAN_PROFILES = {
         "phase1_arguments": "-sV -T4 -Pn --top-ports 100 --host-timeout 60s",
         "scripts_enabled": True,
         "phase2_host_timeout": "90s",
-        "sweep_range": "--top-ports 1000",
+        "sweep_range": "1-1000",
     },
     "deep": {
         "label": "Deep",
@@ -78,7 +78,7 @@ SCAN_PROFILES = {
         "phase1_arguments": "-sV -T4 -Pn --top-ports 1000 --host-timeout 240s",
         "scripts_enabled": True,
         "phase2_host_timeout": "180s",
-        "sweep_range": "-p-",
+        "sweep_range": "1-65535",
     },
 }
 DEFAULT_PROFILE = "standard"
@@ -284,9 +284,6 @@ def _real_scan(target, profile, credential_checks, scan_type="connect",
             _merge_script_results(proto_scanner, resolved_host, ports_out)
         except Exception:
             pass
-
-    if cancel_check():
-        raise ScanCancelled("Scan cancelled before credential checks")
 
     nuclei_findings = []
     if cancel_check():

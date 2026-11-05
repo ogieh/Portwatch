@@ -80,3 +80,14 @@ def test_spray_service_refuses_internal_when_live(monkeypatch):
     importlib.reload(password_spray)
     out = password_spray.spray_http_login("127.0.0.1", ["admin"], simulate=False)
     assert out["tool"] == "refused"
+
+
+def test_validate_request_rejects_dash_leading_target():
+    import pytest
+    from services import scan_service
+
+    class P:
+        def target_allowed(self, t):
+            return True
+    with pytest.raises(scan_service.ScanRequestError):
+        scan_service.validate_request(P(), "-oN", "quick", True)
