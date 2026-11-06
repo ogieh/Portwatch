@@ -1,6 +1,5 @@
 # Scanner Accuracy & Additional Frameworks Implementation Plan
 
-
 **Goal:** Widen port-detection coverage with external sweeper engines feeding nmap `-sV`, add a per-port confidence signal, and add nuclei-confirmed vulnerability findings — all additive and backward-compatible.
 
 **Architecture:** A discovery stage (`port_sweep.py`) runs the best installed sweeper (rustscan/naabu/masscan) over a profile range and records which engines saw each port; nmap `-sV` then runs against only the discovered ports. A new `nuclei_scan.py` stage produces confirmed findings that feed scoring and CVE intel. When no new tools are installed, the engine runs exactly as today.
