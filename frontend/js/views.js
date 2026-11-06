@@ -34,6 +34,8 @@ const Views = (() => {
         <button class="btn btn-primary" data-newscan>${UI.icon('scan')} New scan</button>
       </div>
 
+      ${postureHero(d)}
+
       <div class="kpi-grid">
         ${kpis.map(kpiCard).join('')}
       </div>
@@ -69,6 +71,9 @@ const Views = (() => {
     `;
 
     mount.querySelector('[data-newscan]').onclick = () => openScanModal();
+    const radarEl = mount.querySelector('canvas.radar');
+    if (radarEl && d.top_exposures.length) Motion.radar(radarEl, d.top_exposures, { tip: Motion.tip, onSelect: (b) => go(`scan/${b.scan_id}`) });
+    else if (radarEl) radarEl.closest('.posture-radar').classList.add('is-empty');
     mount.querySelectorAll('[data-scan]').forEach(row =>
       row.onclick = () => go(`scan/${row.dataset.scan}`));
     mount.querySelectorAll('[data-exp]').forEach(row =>
@@ -90,7 +95,8 @@ const Views = (() => {
       ${trend.map(t => {
         const h = Math.max(3, (t.score / max) * 150);
         const color = t.score >= 75 ? 'var(--low)' : t.score >= 60 ? 'var(--med)' : 'var(--high)';
-        return `<div class="bar-col" title="${e(t.target)}: ${e(t.score)}/100">
+        const st = t.score >= 75 ? 'good' : t.score >= 60 ? 'fair' : 'poor';
+        return `<div class="bar-col" data-tip="Scan #${e(t.id)} - ${e(t.target)}|Score ${e(t.score)}/100 (${st})">
           <span class="bar-val">${e(t.score)}</span>
           <div class="bar" style="height:${h}px;background:${color};" aria-hidden="true"></div>
           <span class="bar-label">#${e(t.id)}</span>
@@ -153,6 +159,94 @@ const Views = (() => {
         <td class="mono muted">${triggerMark(s.trigger)}</td>
       </tr>`).join('')}</tbody>
     </table>`;
+  }
+
+  // ── Posture hero: giant grade + score meter (hero number) beside the exposure radar ──
+  const GRADE_BANDS = [[90, 'A'], [75, 'B'], [60, 'C'], [40, 'D'], [0, 'F']];   // mirrors services/scoring.py
+  const GRADE_STATUS = { A: 'Strong posture', B: 'Good posture', C: 'Fair posture', D: 'Weak posture', F: 'Critical posture' };
+  const gradeFor = (score) => (GRADE_BANDS.find(([t]) => score >= t) || [0, 'F'])[1];
+
+  function postureHero(d) {
+    const k = d.kpis, score = k.avg_score;
+    const has = score != null;
+    const g = has ? gradeFor(score) : null;
+    const bands = [['F', 0, 40], ['D', 40, 60], ['C', 60, 75], ['B', 75, 90], ['A', 90, 100]];
+    const exp = d.top_exposures || [];
+    const sevCount = (s) => exp.filter(x => x.severity === s).length;
+    const radarLabel = exp.length
+      ? `Exposure radar: ${exp.length} top exposures, ${sevCount('critical')} critical and ${sevCount('high')} high. The same items are listed in the Top exposures table.`
+      : 'Exposure radar: no critical or high exposures.';
+    return `
+      <section class="posture">
+        <div class="posture-main">
+          <div class="micro posture-eyebrow">Overall posture <span>&middot; ${e(k.projects)} project${k.projects === 1 ? '' : 's'} &middot; ${e(k.total_scans)} scan${k.total_scans === 1 ? '' : 's'}</span></div>
+          <div class="posture-row">
+            <div class="posture-grade ${has ? `pg-${g}` : ''}" aria-hidden="true">${has ? g : '&ndash;'}</div>
+            <div class="posture-read">
+              <div class="posture-status ${has ? `ps-${g}` : ''}">${has ? `<span class="ps-ico" aria-hidden="true">${g === 'A' || g === 'B' ? '&#10003;' : '!'}</span>${GRADE_STATUS[g]}` : 'No scored scans yet'}</div>
+              <div class="posture-score"><span class="num" data-count>${has ? e(score) : '&ndash;'}</span><span class="den">/100</span></div>
+              <div class="posture-cap">average risk score${has ? `, grade ${g}` : ''}</div>
+            </div>
+          </div>
+          <div class="meter" role="img" aria-label="${has ? `Average score ${score} of 100, grade ${g}` : 'No score yet'}">
+            <div class="meter-track">
+              ${bands.map(([l, a, b]) => `<div class="meter-band mb-${l} ${g === l ? 'on' : ''}" style="flex:${b - a}"><span>${l}</span></div>`).join('')}
+            </div>
+            ${has ? `<div class="meter-marker" style="left:${Math.max(0, Math.min(100, score))}%"><span>${e(score)}</span></div>` : ''}
+          </div>
+          <p class="posture-sub">${k.critical_findings || k.high_findings
+            ? `<b>${e(k.critical_findings)}</b> critical and <b>${e(k.high_findings)}</b> high findings are open across ${e(k.unique_cves)} unique CVE${k.unique_cves === 1 ? '' : 's'}.`
+            : 'No critical or high findings are open. Keep the schedule running to catch drift.'}</p>
+        </div>
+        <div class="posture-radar">
+          <div class="radar-head"><span class="card-eyebrow">Exposure radar</span><span class="card-count">${exp.length} plotted &middot; click a blip</span></div>
+          <canvas class="radar" role="img" aria-label="${e(radarLabel)}"></canvas>
+          <ul class="radar-legend" aria-hidden="true">
+            <li><i class="lg lg-critical"></i>Critical</li><li><i class="lg lg-high"></i>High</li>
+            <li><i class="lg lg-medium"></i>Medium</li><li><i class="lg lg-low"></i>Low</li>
+          </ul>
+        </div>
+      </section>`;
+  }
+
+  // ── Port spectrum: every open port at its real position on a log scale 1..65535 ──
+  function portSpectrum(ports) {
+    if (!ports.length) return emptyInline('No open ports detected in the scanned range.');
+    const W = 1000, H = 150, base = 112, L = Math.log10(65535);
+    const xOf = (p) => 24 + (Math.log10(Math.max(1, p)) / L) * (W - 48);
+    const HEIGHT = { critical: 78, high: 70, medium: 50, low: 32 };
+    const ticks = [[1, '1'], [10, '10'], [100, '100'], [1000, '1k'], [10000, '10k'], [65535, '65535']];
+    const sorted = [...ports].sort((a, b) => riskRank(a.risk) - riskRank(b.risk) || a.port - b.port);
+    const placed = [];
+    const labelled = new Set(sorted.filter(p => {
+      const x = xOf(p.port);
+      if (placed.some(px => Math.abs(px - x) < 34)) return false;
+      placed.push(x); return true;
+    }).map(p => p.port));
+    const marks = [...ports].sort((a, b) => a.port - b.port).map(p => {
+      const x = xOf(p.port), hgt = HEIGHT[p.risk] || 24, sev = HEIGHT[p.risk] ? p.risk : 'info';
+      const tipText = `Port ${p.port} - ${p.service || 'unknown'}|${p.version || 'version not detected'}|Risk: ${sev}`;
+      return `<g class="spec-mark spec-${sev}" data-tip="${e(tipText)}">
+        <rect class="spec-hit" x="${x - 9}" y="${base - 96}" width="18" height="${96 + 8}"/>
+        <line x1="${x}" y1="${base}" x2="${x}" y2="${base - hgt}"/>
+        <circle cx="${x}" cy="${base - hgt}" r="4.5"/>
+        ${labelled.has(p.port) ? `<text x="${x}" y="${base - hgt - 11}" text-anchor="middle">${e(p.port)}</text>` : ''}
+      </g>`;
+    }).join('');
+    return `<div class="spectrum">
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Port spectrum: ${ports.length} open ports from ${Math.min(...ports.map(p => p.port))} to ${Math.max(...ports.map(p => p.port))}, plotted on a logarithmic scale. Details are in the Open ports table below.">
+        <line class="spec-axis" x1="24" y1="${base}" x2="${W - 24}" y2="${base}"/>
+        ${ticks.map(([v, l]) => `<g class="spec-tick"><line x1="${xOf(v)}" y1="${base}" x2="${xOf(v)}" y2="${base + 6}"/><text x="${xOf(v)}" y="${base + 22}" text-anchor="middle">${l}</text></g>`).join('')}
+        <text class="spec-band" x="${(xOf(1) + xOf(1023)) / 2}" y="${base + 38}" text-anchor="middle">WELL-KNOWN 0&ndash;1023</text>
+        <text class="spec-band" x="${(xOf(1024) + xOf(49151)) / 2}" y="${base + 38}" text-anchor="middle">REGISTERED 1024&ndash;49151</text>
+        <line class="spec-divider" x1="${xOf(1024)}" y1="${base - 100}" x2="${xOf(1024)}" y2="${base + 30}"/>
+        ${marks}
+      </svg>
+      <ul class="spec-legend" aria-hidden="true">
+        <li><i class="sl sl-high"></i>High</li><li><i class="sl sl-medium"></i>Medium</li><li><i class="sl sl-low"></i>Low</li><li><i class="sl sl-info"></i>Info</li>
+        <li class="spec-legend-note">height and colour both encode risk</li>
+      </ul>
+    </div>`;
   }
 
   // ══════════════════════ PROJECTS ══════════════════════
@@ -343,6 +437,10 @@ const Views = (() => {
         <span class="card-count">${intel.length} finding${intel.length === 1 ? '' : 's'}</span></div>
         <div class="card-body"><div class="finding-list">${intel.map(intelFinding).join('')}</div></div></div>` : ''}
 
+      <div class="card"><div class="card-header"><span class="card-eyebrow">Port spectrum</span>
+        <span class="card-count">${openPorts.length} open &middot; log scale 1&ndash;65535</span></div>
+        <div class="card-body">${portSpectrum(openPorts)}</div></div>
+
       <div class="card"><div class="card-header"><span class="card-eyebrow">Open ports & services</span>
         <span class="card-count">${openPorts.length} open</span></div>
         <div class="card-body no-pad">${portsTable(openPorts)}</div></div>
@@ -481,7 +579,7 @@ const Views = (() => {
     if (!items.length) return emptyInline('Perfect score, no deductions.');
     return `<div class="breakdown-list">
       ${items.map(b => `<div class="breakdown-row"><span>${e(b.reason)}</span><span class="breakdown-pts">${e(b.points)}</span></div>`).join('')}
-      <div class="breakdown-row" style="font-weight:700;border-top:2px solid var(--border);margin-top:4px;padding-top:8px;">
+      <div class="breakdown-row" style="font-weight:600;border-top:1px solid var(--border-strong);margin-top:4px;padding-top:8px;">
         <span>Final score</span><span class="mono">${e(risk.score)}/100</span></div>
     </div>`;
   }
@@ -1181,5 +1279,5 @@ const Views = (() => {
   function riskRank(r) { return { high: 0, medium: 1, low: 2 }[r] ?? 3; }
 
   return { dashboard, projects, projectDetail, scanDetail, schedules, settings,
-           authorizations, findings, openScanModal };
+           authorizations, findings, openScanModal, openProjectModal };
 })();
