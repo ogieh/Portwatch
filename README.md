@@ -13,7 +13,25 @@ gate on every scan, background scan execution with cancel and timeouts, a
 full token lifecycle, password reset, API keys, an audit log, rate limiting,
 Alembic migrations, PostgreSQL support, and a CI-backed test suite.
 
-![dashboard](docs/screenshots/dashboard.png)
+![PortWatch Pro dashboard](docs/screenshots/dashboard.png)
+
+---
+
+## Interface
+
+PortWatch Pro ships a redesigned dark-mode analyst console. The sign-in screen is
+a live attack-surface scanner; the dashboard leads with a **posture hero** — the
+overall grade, average score and an F→A meter — beside an **exposure radar** that
+plots your real top exposures, with severity shown by ring, shape *and* colour so
+it still reads for colour-blind users. A `Ctrl K` command palette jumps anywhere,
+and every animation respects `prefers-reduced-motion`.
+
+| | |
+|---|---|
+| ![Sign in](docs/screenshots/signin.png) | ![Scan detail](docs/screenshots/scan_detail.png) |
+| **Sign in** — the port field is a live demo sweep. | **Scan detail** — port spectrum, nuclei-confirmed CVEs, a line-by-line score breakdown and OWASP mapping. |
+| ![Findings](docs/screenshots/findings.png) | ![Projects](docs/screenshots/projects.png) |
+| **Findings** — track and triage vulnerabilities through their remediation lifecycle. | **Projects** — targets grouped by client, environment or engagement. |
 
 ---
 
@@ -73,7 +91,7 @@ through the frontend for accessibility: labels on the icon-only nav, a focus tra
 in modals that restores focus on close, text alternatives on the charts, auth form
 labels wired to their fields, and a skip link.
 
-The suite sits at 146 passing, plus two integration gates that stay skipped until
+The suite sits at 180 passing, plus integration gates that stay skipped until
 you bring up the lab (`PORTWATCH_LAB=1`) or allow the NVD lookup
 (`PORTWATCH_NVD=1`).
 
@@ -314,17 +332,18 @@ python test_backend.py          # pytest suite + coverage summary
 python -m pytest tests -q
 ```
 
-146 tests run by default and cover API flow and ownership isolation, the
+180 tests run by default and cover API flow and ownership isolation, the
 authorisation gate and allowlists, the pentest authorization and credential-spray
 gates, token lifecycle, password reset, API keys, rate limiting, the audit log,
 background jobs (polling, cancel, timeout, scheduler), the real nmap engine
 through a fake PortScanner, migrations (fresh, legacy 2.0, round trip), and the
 scoring, CVE-regex, diffing, and notification units.
 
-Two more tests stay skipped unless you ask for them, because they reach outside
-the process. `PORTWATCH_LAB=1` turns on the differential run against the Docker
-lab (it needs nmap and the lab up), and `PORTWATCH_NVD=1` turns on the NVD
-cross-check (it needs network). Both are wired into CI as their own jobs.
+A handful of integration tests stay skipped unless you ask for them, because they
+reach outside the process. `PORTWATCH_LAB=1` turns on the differential run and the
+port-sweep / nuclei checks against the Docker lab (they need nmap, a sweeper or
+nuclei, and the lab up), and `PORTWATCH_NVD=1` turns on the NVD cross-check (it
+needs network). Both are wired into CI as their own jobs.
 
 `.github/workflows/ci.yml` runs three jobs on push. The first runs the full
 suite on Python 3.11 and 3.12. The second installs nmap, brings up the reference
