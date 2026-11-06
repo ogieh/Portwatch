@@ -93,7 +93,9 @@ def create_app(config_object=Config):
             "app": app.config["APP_NAME"],
             "version": app.config["APP_VERSION"],
             "env": app.config.get("ENV"),
-            "engine": "nmap" if scanner.nmap_available() else "simulated",
+            "engine": "nmap" if (scanner.nmap_available()
+                                 and not app.config.get("SIMULATE_SCANS"))
+                      else "simulated",
             "simulate_forced": bool(app.config.get("SIMULATE_SCANS")),
             "scan_type": app.config.get("NMAP_SCAN_TYPE"),
         })
